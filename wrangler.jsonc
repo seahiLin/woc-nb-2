@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "woc-nb",
+	"name": "woc-nb-2",
 	"compatibility_date": "2026-10-06",
 	"compatibility_flags": ["nodejs_compat"],
 	"main": "src/server.ts",
