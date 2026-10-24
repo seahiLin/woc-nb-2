@@ -21,6 +21,7 @@ Neon Postgres 的 `employees` schema。
 migrations/
   0001_create_employees.sql              # employees schema 在 D1 上的等价结构
   0002_employees_dashboard_snapshot.sql  # 看板快照表
+  0003_align_employees_indexes.sql       # 去掉 0001 里凭空多出的索引，对齐 Neon
 src/lib/
   neon.server.ts            # Neon 驱动封装（Pool/Client，每个请求用完即关）
   employees.queries.server.ts # 看板用到的全部 SQL
@@ -46,6 +47,20 @@ src/routes/index.tsx        # 看板页面
 | `nextval('employees.id_employee_seq')` | `INTEGER PRIMARY KEY`（自增语义） |
 
 D1 的 `PRAGMA foreign_keys` 默认关闭，外键声明仅作结构留档；页面的数据不读 D1 的这六张表。
+
+索引也按 Neon 的实际情况对齐，不多不少 9 个：
+
+| 表 | 索引 | 类型 |
+| --- | --- | --- |
+| `employee` | `(id)` | PK |
+| `department` | `(id)` · `(dept_name)` | PK · UNIQUE |
+| `department_employee` | `(employee_id, department_id)` · `(department_id)` | PK · INDEX |
+| `department_manager` | `(employee_id, department_id)` · `(department_id)` | PK · INDEX |
+| `salary` | `(employee_id, from_date)` | PK |
+| `title` | `(employee_id, title, from_date)` | PK |
+
+Neon 里这些索引的物理名是 `idx_16979_primary` / `idx_16982_dept_no` 这类
+（原始数据集导入时生成的），D1 侧用了可读名，列组合与唯一性一致。
 
 ## 本地开发
 
