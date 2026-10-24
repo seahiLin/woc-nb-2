@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* 装裱：一道细内衬白边，浮在深色墙面上 */
+.paint-frame {
+  filter: drop-shadow(0 40px 90px rgba(0, 0, 0, 0.65));
+}
+
+.paint-frame svg {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}

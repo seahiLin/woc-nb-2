@@ -1,0 +1,23 @@
+/**
+ * The app Sprig edits. Workers Builds deploys `main` to production and every
+ * other branch (`sprig/*`) to its own Worker Preview.
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "woc-nb",
+	"compatibility_date": "2026-10-06",
+	"compatibility_flags": ["nodejs_compat"],
+	"main": "src/server.ts",
+	"observability": { "enabled": true },
+	"vars": {
+		// Origins allowed to embed this app in an iframe (Sprig Studio's preview pane).
+		"FRAME_ANCESTORS": "https://tria.seahi.workers.dev"
+	},
+	// Worker Previews (`wrangler preview`, one per branch). Bind preview-only resources here,
+	// never production data.
+	"previews": {
+		"vars": {
+			"FRAME_ANCESTORS": "https://tria.seahi.workers.dev"
+		}
+	}
+}
