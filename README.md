@@ -7,7 +7,9 @@ Neon Postgres 的 `employees` schema。
 
 - **Neon**（唯一数据源）：库 `neondb`，schema `employees`，六张表 ——
   `employee` / `department` / `department_employee` / `department_manager` / `salary` / `title`。
-  连接串来自 Worker secret `CONNECTION_STRING`，只在服务端读取，不会下发到浏览器。
+  连接用官方驱动 `@neondatabase/serverless`，走真正的 Postgres 协议（WebSocket 上的
+  `Pool` / `Client`，即 node-postgres 的 API，而非 HTTP 单次查询）。连接串来自 Worker
+  secret `CONNECTION_STRING`，只在服务端读取，不会下发到浏览器。
 - **D1**（`env.DB`，可选）：只存一份看板聚合结果的 JSON 快照。Neon 连不上时页面回退到
   这份快照，并把状态灯标成“缓存”，而不是直接白屏。
 
@@ -20,7 +22,7 @@ migrations/
   0001_create_employees.sql              # employees schema 在 D1 上的等价结构
   0002_employees_dashboard_snapshot.sql  # 看板快照表
 src/lib/
-  neon.server.ts            # Neon SQL-over-HTTP 客户端（纯 fetch，无额外依赖）
+  neon.server.ts            # Neon 驱动封装（Pool/Client，每个请求用完即关）
   employees.queries.server.ts # 看板用到的全部 SQL
   snapshot.server.ts        # D1 快照读写
   worker-env.server.ts      # 读取 Worker secret / D1 binding

@@ -1,228 +1,138 @@
 /**
- * Neon HTTP 客户端。
+ * Neon 连接层：用官方 `@neondatabase/serverless` 驱动，走真正的 Postgres 协议。
  *
- * 只做一件事：把参数化 SQL 通过 `POST https://<host>/sql` 发给 Neon 的
- * SQL-over-HTTP 端点。这条通道与 `@neondatabase/serverless` 的 `neon()`
- * 完全一致（同样的 `Neon-Connection-String` 头 + 同样的响应格式），
- * 但只用 `fetch`，不引入任何依赖，也就不需要动 lockfile。
+ * 为什么是 `Pool`（WebSocket）而不是 `neon()`（HTTP）：
+ *   - `Pool` / `Client` 就是 node-postgres 的 API，跑的是标准的 Postgres
+ *     握手、扩展查询协议（Parse/Bind/Execute）和真正的服务端事务，类型
+ *     解析也交给 pg 的 type parser。
+ *   - Workers 自带全局 `WebSocket`，不需要像 Node 那样塞 `ws`。
+ *   - 连接不能跨请求存活，所以每个请求自己开一个 Pool，用完就 `end()`。
  *
- * 连接串来自 Worker secret `CONNECTION_STRING`，绝不出现在仓库里，
- * 也绝不下发到浏览器。
+ * 连接串来自 Worker secret `CONNECTION_STRING`，只在服务端读取。
  */
 
-export interface NeonField {
-  name: string
-  dataTypeID: number
+import { Pool } from '@neondatabase/serverless'
+
+/** 只声明用到的那一点 pg API，避免把驱动的内部类型带进业务代码。 */
+export interface Queryable {
+  query<R extends QueryResultRow = QueryResultRow>(
+    text: string,
+    values?: unknown[],
+  ): Promise<{ rows: R[] }>
+}
+
+export type QueryResultRow = Record<string, unknown>
+
+/** 已建立的连接：能跑查询，也能还回去。 */
+interface ConnectedClient extends Queryable {
+  release(): void
 }
 
 export class NeonError extends Error {
   code?: string
   detail?: string
-  /** 是否值得换一个主机重试（网络不通 / 404）。 */
-  retryable: boolean
 
-  constructor(message: string, retryable = false) {
+  constructor(message: string) {
     super(message)
     this.name = 'NeonError'
-    this.retryable = retryable
-  }
-}
-
-interface ConnectionParts {
-  host: string
-  database: string
-}
-
-/** 从连接串里取出 host 与库名，用于展示与请求路由。 */
-export function parseConnectionString(connectionString: string): ConnectionParts {
-  let url: URL
-  try {
-    url = new URL(connectionString)
-  } catch {
-    throw new NeonError('CONNECTION_STRING 不是合法的连接串（应为 postgresql://…）')
-  }
-  if (!/^postgres(ql)?:$/.test(url.protocol) || !url.hostname) {
-    throw new NeonError('CONNECTION_STRING 必须是 postgresql://user:pass@host/db 形式')
-  }
-  return {
-    host: url.hostname,
-    database: decodeURIComponent(url.pathname.replace(/^\//, '')) || 'neondb',
-  }
-}
-
-interface QueryOptions {
-  /** 把结果按数组返回（默认按对象返回）。 */
-  arrayMode?: boolean
-  /** 请求超时，毫秒。 */
-  timeoutMs?: number
-}
-
-interface NeonHttpResponse {
-  results?: Array<{ fields: NeonField[]; rows: unknown[][] }>
-  fields?: NeonField[]
-  rows?: unknown[][]
-  message?: string
-}
-
-async function postSql(
-  connectionString: string,
-  payload: unknown,
-  headers: Record<string, string>,
-  timeoutMs: number,
-): Promise<NeonHttpResponse> {
-  const { host } = parseConnectionString(connectionString)
-  // 连接串可能是 -pooler 主机；HTTP 端点两者都支持，先试原样，
-  // 连不上再退回直连主机。
-  const candidates = host.includes('-pooler') ? [host, host.replace('-pooler', '')] : [host]
-
-  let lastError: NeonError | null = null
-
-  for (const candidate of candidates) {
-    try {
-      return await requestSql(candidate, connectionString, payload, headers, timeoutMs)
-    } catch (error) {
-      const neonError = error instanceof NeonError ? error : new NeonError(String(error))
-      // 只有“压根没连上”或 404 才换主机；SQL 报错（400）说明连接是通的。
-      if (!neonError.retryable) throw neonError
-      lastError = neonError
-    }
-  }
-
-  throw lastError ?? new NeonError('无法连接 Neon')
-}
-
-async function requestSql(
-  host: string,
-  connectionString: string,
-  payload: unknown,
-  headers: Record<string, string>,
-  timeoutMs: number,
-): Promise<NeonHttpResponse> {
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), timeoutMs)
-
-  try {
-    const response = await fetch(`https://${host}/sql`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Neon-Connection-String': connectionString,
-        'Neon-Raw-Text-Output': 'true',
-        'Neon-Array-Mode': 'true',
-        ...headers,
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    })
-
-    if (!response.ok) {
-      let message = `Neon 返回 HTTP ${response.status}`
-      try {
-        const body = (await response.json()) as NeonHttpResponse
-        if (body.message) message = body.message
-      } catch {
-        /* 响应体不是 JSON，保留状态码信息 */
-      }
-      throw new NeonError(message, response.status === 404)
-    }
-
-    return (await response.json()) as NeonHttpResponse
-  } catch (error) {
-    if (error instanceof NeonError) throw error
-    throw new NeonError(
-      controller.signal.aborted ? 'Neon 查询超时' : `无法连接 Neon：${(error as Error).message}`,
-      true,
-    )
-  } finally {
-    clearTimeout(timeout)
   }
 }
 
 /**
- * 执行一条参数化查询。`$1`、`$2`… 为占位符。
+ * 开一个连接，跑完就关。
  *
- * 结果默认转成对象数组；`arrayMode: true` 时返回原始二维数组。
+ * 注意用 `connect()` 而不是 `pool.query()`：后者每次调用可能拿到不同的
+ * 底层连接，`begin` / `commit` 就会落到别的连接上，事务形同虚设。
  */
-export async function neonQuery<T = Record<string, unknown>>(
+export async function withClient<T>(
   connectionString: string,
-  query: string,
-  params: unknown[] = [],
-  options: QueryOptions = {},
-): Promise<T[]> {
-  const body = await postSql(
+  run: (db: Queryable) => Promise<T>,
+): Promise<T> {
+  if (!connectionString) {
+    throw new NeonError('缺少 CONNECTION_STRING。请在 Tria 的 Secrets 里配置 Neon 连接串。')
+  }
+
+  const pool = new Pool({
     connectionString,
-    { query, params },
-    {},
-    options.timeoutMs ?? 25_000,
-  )
+    // Workers 里不能长期挂着连接；超时就失败，让页面走 D1 快照。
+    connectionTimeoutMillis: 10_000,
+    query_timeout: 20_000,
+    max: 1,
+  })
 
-  const result = body.results?.[0] ?? { fields: body.fields ?? [], rows: body.rows ?? [] }
-  const names = result.fields.map((field) => field.name)
-  const rows = result.rows ?? []
+  let client: ConnectedClient
+  try {
+    client = (await pool.connect()) as unknown as ConnectedClient
+  } catch (error) {
+    await pool.end().catch(() => undefined)
+    const cause = error as { message?: string }
+    throw new NeonError(cause?.message ?? '无法连接 Neon')
+  }
 
-  if (options.arrayMode) return rows as unknown as T[]
+  try {
+    return await run(client)
+  } catch (error) {
+    const cause = error as { message?: string; code?: string; detail?: string }
+    const wrapped = new NeonError(cause?.message ?? 'Neon 查询失败')
+    wrapped.code = cause?.code
+    wrapped.detail = cause?.detail
+    throw wrapped
+  } finally {
+    client.release()
+    // Workers 里连接不能跨请求存活，必须在本请求内关掉。
+    await pool.end().catch(() => undefined)
+  }
+}
 
-  return rows.map((row) => {
-    const record: Record<string, unknown> = {}
-    for (let i = 0; i < names.length; i += 1) record[names[i]] = normalizeValue(row[i])
-    return record as unknown as T
+/** 单条参数化查询（`$1`、`$2`… 占位符）。 */
+export async function query<R extends QueryResultRow = QueryResultRow>(
+  connectionString: string,
+  text: string,
+  values: unknown[] = [],
+): Promise<R[]> {
+  return withClient(connectionString, async (db) => {
+    const result = await db.query<R>(text, values)
+    return result.rows
   })
 }
 
 /**
- * 事务：多条语句在同一个只读事务里执行，结果按顺序返回。
- * 一次 HTTP 请求，口径一致，也省往返。
+ * 多条语句放在同一个只读事务里跑，保证看板各切片的取数口径一致。
+ * 结果按传入顺序返回。
  */
-export async function neonTransaction<T extends Record<string, unknown>[]>(
+export async function readOnlyBatch(
   connectionString: string,
-  queries: Array<{ query: string; params?: unknown[] }>,
-  options: { timeoutMs?: number } = {},
-): Promise<T[]> {
-  const body = await postSql(
-    connectionString,
-    queries.map((item) => ({ query: item.query, params: item.params ?? [] })),
-    {
-      'Neon-Batch-Isolation-Level': 'RepeatableRead',
-      'Neon-Batch-Read-Only': 'true',
-    },
-    options.timeoutMs ?? 30_000,
-  )
-
-  if (!Array.isArray(body.results)) {
-    throw new NeonError('Neon 返回了意外的结果格式')
-  }
-
-  return body.results.map((result) => {
-    const names = result.fields.map((field) => field.name)
-    return result.rows.map((row) => {
-      const record: Record<string, unknown> = {}
-      for (let i = 0; i < names.length; i += 1) record[names[i]] = normalizeValue(row[i])
-      return record
-    }) as unknown as T
+  statements: string[],
+): Promise<QueryResultRow[][]> {
+  return withClient(connectionString, async (db) => {
+    await db.query('begin transaction read only')
+    try {
+      const results: QueryResultRow[][] = []
+      for (const statement of statements) {
+        const result = await db.query(statement)
+        results.push(result.rows)
+      }
+      await db.query('commit')
+      return results
+    } catch (error) {
+      await db.query('rollback').catch(() => undefined)
+      throw error
+    }
   })
 }
 
 /** 在 Neon 里跑一条 `current_database()`，作为“连得上吗”的探针。 */
 export async function neonPing(connectionString: string): Promise<string> {
-  const rows = await neonQuery<{ db: string }>(
-    connectionString,
-    'select current_database() as db',
-    [],
-    { timeoutMs: 10_000 },
-  )
-  return String(rows[0]?.db ?? parseConnectionString(connectionString).database)
+  const rows = await query<{ db: string }>(connectionString, 'select current_database() as db')
+  return String(rows[0]?.db ?? '')
 }
 
-/**
- * Neon 的 `Neon-Raw-Text-Output: true` 会把所有值都当文本返回，
- * 这样 bigint 不会丢精度，日期也不会被时区改写。
- * 这里按“看起来像数字/布尔”的规则还原类型。
- */
-function normalizeValue(value: unknown): unknown {
-  if (value === null || value === undefined) return null
-  if (typeof value !== 'string') return value
-  if (value === 'true') return true
-  if (value === 'false') return false
-  if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value)
-  return value
+/** 从连接串里取出库名（只用于展示，不参与连接）。 */
+export function databaseName(connectionString: string): string {
+  try {
+    const url = new URL(connectionString)
+    return decodeURIComponent(url.pathname.replace(/^\//, '')) || 'neondb'
+  } catch {
+    return 'neondb'
+  }
 }

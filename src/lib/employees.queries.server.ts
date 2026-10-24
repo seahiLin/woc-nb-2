@@ -5,11 +5,10 @@
  *   employee / department / department_employee / department_manager / salary / title
  *
  * 口径统一：`to_date = '9999-01-01'` 视为“当前有效”。
- * 这些语句在 Neon 上跑过（单批约 1s 内），所以一次 `neonTransaction`
- * 就够了，不需要缓存。
+ * 这些语句在 Neon 上跑过（单批约 1s 内），所以一次只读事务就够了。
  */
 
-import { neonQuery, neonTransaction, parseConnectionString } from './neon.server'
+import { databaseName, query, readOnlyBatch } from './neon.server'
 import type {
   Dashboard,
   DepartmentStat,
@@ -236,6 +235,8 @@ interface TrendRow {
 }
 
 const num = (value: unknown): number => {
+  // pg 把 `count(*)`（int8）和 `numeric` 解成字符串，避免大数丢精度；
+  // 看板这里的量级远低于 2^53，直接转 number 即可。
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) ? parsed : 0
 }
@@ -243,20 +244,20 @@ const num = (value: unknown): number => {
 const str = (value: unknown): string => (value === null || value === undefined ? '' : String(value))
 
 /**
- * 一次批量查询，把看板需要的所有切片都取回来。
- * 所有语句在同一个只读事务里执行，口径一致。
+ * 一次只读事务，把看板需要的所有切片都取回来。
+ * 所有语句同一口径，走同一条连接。
  */
 export async function loadDashboard(connectionString: string): Promise<Dashboard> {
   const [kpis, bands, departments, titles, hires, gender, topEarners, trend] =
-    (await neonTransaction<Record<string, unknown>[]>(connectionString, [
-      { query: KPI_QUERY },
-      { query: BANDS_QUERY },
-      { query: DEPARTMENTS_QUERY },
-      { query: TITLES_QUERY },
-      { query: HIRES_QUERY },
-      { query: GENDER_QUERY },
-      { query: TOP_EARNERS_QUERY },
-      { query: TREND_QUERY },
+    (await readOnlyBatch(connectionString, [
+      KPI_QUERY,
+      BANDS_QUERY,
+      DEPARTMENTS_QUERY,
+      TITLES_QUERY,
+      HIRES_QUERY,
+      GENDER_QUERY,
+      TOP_EARNERS_QUERY,
+      TREND_QUERY,
     ])) as unknown as [
       KpiRow[],
       BandRow[],
@@ -291,7 +292,7 @@ export async function loadDashboard(connectionString: string): Promise<Dashboard
   return {
     generatedAt: new Date().toISOString(),
     source: 'neon',
-    database: str(kpiRow.database_name) || parseConnectionString(connectionString).database,
+    database: str(kpiRow.database_name) || databaseName(connectionString),
     kpis: kpi,
     bands: bands.map<SalaryBand>((row) => ({ band: num(row.band), count: num(row.n) })),
     departments: departments.map<DepartmentStat>((row) => ({
@@ -334,7 +335,7 @@ export async function searchEmployees(
   term: string,
 ): Promise<EmployeeRow[]> {
   const trimmed = term.trim()
-  const rows = await neonQuery<{
+  const rows = await query<{
     id: string
     name: string
     gender: 'M' | 'F'
