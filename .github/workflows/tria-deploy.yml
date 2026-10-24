@@ -1,0 +1,82 @@
+# Managed by Tria, which rewrites this file: changes made here do not last.
+# main deploys to production; every other branch gets its own Preview. What must run before
+# each deploy, such as migrations, goes in package.json's "release" and "release:preview" scripts.
+name: Deploy
+on:
+  push:
+permissions:
+  contents: read
+concurrency:
+  group: deploy-${{ github.ref }}
+  # A production deploy, and the migrations before it, always run to the end.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+env:
+  CLOUDFLARE_ACCOUNT_ID: c57075277e9834ed6b6313451d18e7b3
+# One job per target, so a branch's run never receives production's values.
+jobs:
+  production:
+    name: Cloudflare Workers
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Load the app's variables
+        env:
+          TRIA_ENV: ${{ secrets.TRIA_ENV_PRODUCTION }}
+        run: |
+          node <<'JS'
+          const crypto = require('node:crypto')
+          const variables = JSON.parse(process.env.TRIA_ENV || '{}')
+          let lines = ''
+          for (const [name, value] of Object.entries(variables)) {
+            for (const line of value.split('\n')) if (line.trim()) console.log('::add-mask::' + line)
+            const end = 'TRIA_' + crypto.randomUUID()
+            lines += name + '<<' + end + '\n' + value + '\n' + end + '\n'
+          }
+          require('node:fs').appendFileSync(process.env.GITHUB_ENV, lines)
+          JS
+      - run: npm run build
+      - run: npm run release --if-present
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+  preview:
+    name: Cloudflare Workers
+    if: github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Load the app's variables
+        env:
+          TRIA_ENV: ${{ secrets.TRIA_ENV_PREVIEW }}
+        run: |
+          node <<'JS'
+          const crypto = require('node:crypto')
+          const variables = JSON.parse(process.env.TRIA_ENV || '{}')
+          let lines = ''
+          for (const [name, value] of Object.entries(variables)) {
+            for (const line of value.split('\n')) if (line.trim()) console.log('::add-mask::' + line)
+            const end = 'TRIA_' + crypto.randomUUID()
+            lines += name + '<<' + end + '\n' + value + '\n' + end + '\n'
+          }
+          require('node:fs').appendFileSync(process.env.GITHUB_ENV, lines)
+          JS
+      - run: npm run build
+      - run: npm run release:preview --if-present
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - run: npx wrangler preview --name "$GITHUB_REF_NAME"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

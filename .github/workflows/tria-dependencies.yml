@@ -1,0 +1,57 @@
+# Managed by Tria, which rewrites this file: changes made here do not last.
+# Resolves the npm packages Tria adds to a conversation, without installing them or running their
+# scripts, and hands package.json and package-lock.json back to Tria.
+name: Dependencies
+run-name: Dependencies ${{ github.event.client_payload.request }}
+on:
+  repository_dispatch:
+    types: [tria-dependencies]
+permissions:
+  contents: read
+  # Proves to Tria that the result comes from this workflow in this repository.
+  id-token: write
+jobs:
+  resolve:
+    name: npm install
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.client_payload.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - env:
+          PAYLOAD: ${{ toJSON(github.event.client_payload) }}
+        run: |
+          node --input-type=module <<'JS'
+          import { spawnSync } from 'node:child_process'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          const STUDIO = "https://tria.seahi.workers.dev"
+          const { request, thread, manifest, packages, dev } = JSON.parse(process.env.PAYLOAD)
+          const SPEC = /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*(@[\w.^~<>=|* -]+)?$/i
+          if (!/^[a-z0-9]{8,64}$/.test(request) || !/^[a-z0-9]{4,40}$/.test(thread)) throw new Error('Not a Tria request')
+          if (!Array.isArray(packages) || packages.length === 0 || !packages.every((spec) => typeof spec === 'string' && SPEC.test(spec))) {
+            throw new Error('Not npm packages: ' + JSON.stringify(packages))
+          }
+          writeFileSync('package.json', Buffer.from(manifest, 'base64'))
+          const args = ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund', ...(dev ? ['--save-dev'] : []), ...packages]
+          const npm = spawnSync('npm', args, { encoding: 'utf8' })
+          const output = npm.stdout + npm.stderr
+          process.stdout.write(output)
+          const result = npm.status === 0
+            ? { manifest: readFileSync('package.json', 'utf8'), lockfile: readFileSync('package-lock.json', 'utf8') }
+            : { error: output.slice(-8000) }
+          const issued = await fetch(process.env.ACTIONS_ID_TOKEN_REQUEST_URL + '&audience=' + encodeURIComponent(STUDIO), {
+            headers: { authorization: 'bearer ' + process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN },
+          })
+          const { value } = await issued.json()
+          const sent = await fetch(STUDIO + '/api/dependencies', {
+            method: 'POST',
+            headers: { authorization: 'Bearer ' + value, 'content-type': 'application/json' },
+            body: JSON.stringify({ request, thread, ...result }),
+          })
+          if (!sent.ok) throw new Error('Tria did not take the result: ' + sent.status + ' ' + (await sent.text()))
+          JS
