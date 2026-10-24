@@ -10,7 +10,7 @@
  */
 
 import { createServerFn } from '@tanstack/react-start'
-import type { Dashboard, EmployeeRow } from './dashboard-types'
+import type { Dashboard, SearchResult } from './dashboard-types'
 import { loadDashboard, searchEmployees } from './employees.queries.server'
 import { neonPing } from './neon.server'
 import { readSnapshot, writeSnapshot } from './snapshot.server'
@@ -41,22 +41,24 @@ export const getDashboard = createServerFn({ method: 'GET' }).handler(
 /** 员工检索：按工号 / 姓 / 名。 */
 export const findEmployees = createServerFn({ method: 'GET' })
   .validator((data: { term: string }) => ({ term: String(data?.term ?? '').slice(0, 40) }))
-  .handler(async ({ data }): Promise<{ rows: EmployeeRow[]; error: string | null }> => {
+  .handler(async ({ data }): Promise<SearchResult> => {
     const term = data.term.trim()
-    if (!term) return { rows: [], error: null }
+    if (!term) return { rows: [], truncated: false, error: null }
 
     try {
-      return { rows: await searchEmployees(connectionString(), term), error: null }
+      const { rows, truncated } = await searchEmployees(connectionString(), term)
+      return { rows, truncated, error: null }
     } catch (error) {
       return {
         rows: [],
+        truncated: false,
         error: error instanceof Error ? error.message : 'Neon 查询失败',
       }
     }
   })
 
 /** 连接自检：给页面一个“重新连接 Neon”的按钮。 */
-export const pingNeon = createServerFn({ method: 'GET' }).handler(
+export const pingNeonFn = createServerFn({ method: 'GET' }).handler(
   async (): Promise<{ ok: boolean; database: string | null; error: string | null }> => {
     try {
       return { ok: true, database: await neonPing(connectionString()), error: null }

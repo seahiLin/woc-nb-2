@@ -1,7 +1,9 @@
-# woc-nb-2 · 员工数据看板
+# woc-nb-2 · 员工数据分析报告
 
-TanStack Start 应用，跑在 Cloudflare Workers 上。页面是一个 HR/BI 看板，数据实时来自
-Neon Postgres 的 `employees` schema。
+TanStack Start 应用，跑在 Cloudflare Workers 上。页面是一份关于 Neon Postgres
+`employees` 数据集的**分析报告**（不是那种一屏几十个数字的监控大屏）：规模与薪酬总览、
+薪酬分布、招聘节奏与留存、部门画像、职衔结构与同岗性别差异、薪酬趋势、薪酬最高名单，
+最后带一个直接打库的员工检索。
 
 ## 数据源
 
@@ -13,7 +15,12 @@ Neon Postgres 的 `employees` schema。
 - **D1**（`env.DB`，可选）：只存一份看板聚合结果的 JSON 快照。Neon 连不上时页面回退到
   这份快照，并把状态灯标成“缓存”，而不是直接白屏。
 
-口径：`to_date = '9999-01-01'` 视为“当前有效”。
+### 口径
+
+- `to_date = '9999-01-01'` 视为“当前有效”。
+- 数据集基准日（`asOf`）取薪资历史里最后一个真实结束日的次日，本数据集是 **2002-08-02**。
+  不写死，换一份数据集也能自动对上。所有“在职 / 当前薪酬 / 司龄”都相对这一天。
+- 300,024 人曾在这份数据里出现，其中 240,124 人在基准日仍在职。
 
 ## 目录
 
@@ -23,15 +30,25 @@ migrations/
   0002_employees_dashboard_snapshot.sql  # 看板快照表
   0003_align_employees_indexes.sql       # 去掉 0001 里凭空多出的索引，对齐 Neon
 src/lib/
-  neon.server.ts            # Neon 驱动封装（Pool/Client，每个请求用完即关）
-  employees.queries.server.ts # 看板用到的全部 SQL
-  snapshot.server.ts        # D1 快照读写
-  worker-env.server.ts      # 读取 Worker secret / D1 binding
-  dashboard.functions.ts    # 服务端函数（页面唯一入口）
-  dashboard-types.ts        # 前后端共享的数据结构
-src/components/charts.tsx   # 手写 SVG 图表原语
-src/routes/index.tsx        # 看板页面
+  neon.server.ts              # Neon 驱动封装（Pool/Client，每个请求用完即关）
+  employees.queries.server.ts # 报告用到的全部 SQL（一次只读事务）
+  snapshot.server.ts          # D1 快照读写
+  worker-env.server.ts        # 读取 Worker secret / D1 binding
+  dashboard.functions.ts      # 服务端函数（页面唯一入口）
+  dashboard-types.ts          # 前后端共享的数据结构
+src/components/charts.tsx     # 手写 SVG 图表原语 + 格式化
+src/routes/index.tsx          # 报告页面
 ```
+
+## 设计
+
+浅色纸面 + 细线 + 等宽数字，取向是**印出来的分析报告**而非深色监控大屏：
+
+- 颜色全部走语义 token（`--color-ink` / `--color-rule` / `--color-accent`），图表里的
+  `currentColor` 和 `text-ink-faint` 会自动跟随。
+- 每个小节都有编号、一句导语和右侧注释 —— 先给结论，再给图。
+- 图表不引第三方库，全是手写 SVG：数据量小、形状固定，手写更可控也不给客户端加体积。
+- 数字统一 `font-variant-numeric: tabular-nums`，表格和 KPI 才能对齐。
 
 ## 迁移与 Neon 的对应关系
 

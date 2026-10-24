@@ -43,7 +43,7 @@ export async function writeSnapshot(dashboard: Dashboard): Promise<void> {
         JSON.stringify(dashboard),
         `${dashboard.database}/employees`,
         dashboard.generatedAt,
-        dashboard.kpis.headcount,
+        dashboard.totals.employees,
       )
       .run()
   } catch {
