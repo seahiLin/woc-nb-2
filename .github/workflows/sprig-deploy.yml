@@ -1,0 +1,30 @@
+# Added by Sprig: builds this app and deploys it to Cloudflare Workers.
+# main goes to production; every other branch (each Sprig conversation) gets its own Preview.
+name: Deploy
+on:
+  push:
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  deploy:
+    name: Cloudflare Workers
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_ACCOUNT_ID: c57075277e9834ed6b6313451d18e7b3
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - if: github.ref == 'refs/heads/main'
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      - if: github.ref != 'refs/heads/main'
+        run: npx wrangler preview --name "${GITHUB_REF_NAME}"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
