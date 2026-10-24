@@ -18,6 +18,21 @@
 	"previews": {
 		"vars": {
 			"FRAME_ANCESTORS": "https://tria.seahi.workers.dev"
+		},
+		"d1_databases": [
+			{
+				"binding": "DB",
+				"database_name": "woc-nb-2-db-preview",
+				"database_id": "dc86e526-e49d-477f-b09b-05d78f6827a6"
+			}
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "woc-nb-2-db",
+			"database_id": "3db0bd3d-4ec3-44ad-8041-209fc0345476",
+			"preview_database_id": "dc86e526-e49d-477f-b09b-05d78f6827a6"
 		}
-	}
+	]
 }
