@@ -1,10 +1,100 @@
 @import "tailwindcss";
 
-/* 装裱：一道细内衬白边，浮在深色墙面上 */
-.paint-frame {
-  filter: drop-shadow(0 40px 90px rgba(0, 0, 0, 0.65));
+/*
+ * 设计取向：浅色纸面 + 细线 + 紧凑的无衬线字体 + 等宽数字。
+ * 参考的是印刷版分析报告，而不是深色监控大屏。
+ *
+ * 颜色全部走语义 token（ink / rule / accent），
+ * 这样图表里的 `currentColor` 和 `text-ink-faint` 能自动跟随主题。
+ */
+@theme {
+  --font-sans:
+    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
+    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+
+  /* 纸面 */
+  --color-paper: #faf9f7;
+  --color-paper-raised: #ffffff;
+
+  /* 墨色层级：主文 / 次文 / 弱文 */
+  --color-ink: #16181d;
+  --color-ink-soft: #565b66;
+  --color-ink-faint: #8b909b;
+
+  /* 分隔线 */
+  --color-rule: #e7e4df;
+  --color-rule-strong: #d5d1ca;
+
+  /* 强调色：只用于“当前值/中位数”这类需要被一眼看到的东西 */
+  --color-accent: #c2410c;
+  --color-accent-soft: #fef3ec;
+
+  /* 状态色 */
+  --color-live: #0f766e;
+  --color-warn: #b45309;
+  --color-danger: #b91c1c;
 }
 
-.paint-frame svg {
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  /* 数字一律等宽，表格和 KPI 才能对齐 */
+  font-feature-settings: "tnum" 1, "cv05" 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+}
+
+/* 数字类文本统一等宽数字 */
+.tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* 极细的滚动条，别抢内容的注意力 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-rule-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: var(--color-rule-strong);
+  border-radius: 999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 首屏元素轻微上浮入场，只播一次 */
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.settle {
+  animation: settle 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settle {
+    animation: none;
+  }
 }
