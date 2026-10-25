@@ -435,8 +435,8 @@ function Report({ dashboard }: { dashboard: Dashboard }) {
           <>
             {firstYear?.year} 年入职 {fmtInt(firstYear?.hired ?? 0)} 人，
             {lastYear?.year} 年只有 {fmtInt(lastYear?.hired ?? 0)} 人。
-            但留下来的人比例很稳定 —— 每年入职的人里平均 {fmtPercent(avgRetention, 0)} 到{' '}
-            {fmtYearMonth(dashboard.asOf)} 仍在职。
+            但留下来的人比例很稳定：各年入职者到 {fmtYearMonth(dashboard.asOf)} 的平均留存率是{' '}
+            {fmtPercent(avgRetention, 0)}。
           </>
         }
         aside={<Legend items={[{ label: '至今在职', color: '#131519' }, { label: '已离开', color: '#d8d2c6' }]} />}
