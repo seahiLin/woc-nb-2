@@ -33,7 +33,7 @@ export async function readSnapshot(): Promise<Dashboard | null> {
 
     if (!row?.payload) return null
     const payload = JSON.parse(row.payload) as Dashboard
-    return { ...payload, source: 'cache', generatedAt: row.syncedAt }
+    return { ...payload, generatedAt: row.syncedAt }
   } catch {
     // 快照表还没建好（迁移未跑）时静默跳过。
     return null
@@ -43,21 +43,22 @@ export async function readSnapshot(): Promise<Dashboard | null> {
 export async function writeSnapshot(dashboard: Dashboard): Promise<void> {
   const db = snapshotDb()
   if (!db) return
+  const payload = JSON.stringify(dashboard)
   try {
     await db
       .insert(dashboardSnapshot)
       .values({
         id: SNAPSHOT_ID,
-        payload: JSON.stringify(dashboard),
-        source: `${dashboard.database}/employees`,
+        payload,
+        source: 'employees',
         syncedAt: dashboard.generatedAt,
         rowCount: dashboard.totals.employees,
       })
       .onConflictDoUpdate({
         target: dashboardSnapshot.id,
         set: {
-          payload: JSON.stringify(dashboard),
-          source: `${dashboard.database}/employees`,
+          payload,
+          source: 'employees',
           syncedAt: dashboard.generatedAt,
           rowCount: dashboard.totals.employees,
         },

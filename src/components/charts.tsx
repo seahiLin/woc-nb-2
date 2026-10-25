@@ -2,7 +2,8 @@
  * 图表原语与格式化工具。
  *
  * 不引图表库：数据量小、形状固定，手写 SVG 更可控，也不给客户端加体积。
- * 所有颜色走 CSS 变量，图表里的 `currentColor` 会自动跟随主题。
+ * 只用两种墨色：主色画主体，朱红只标记一个「关键值」。图表不画边框、
+ * 不画底色，靠留白和疏密区分，不靠配色。
  */
 
 import type { ReactNode } from 'react'
@@ -33,24 +34,9 @@ export const fmtMoneyShort = (value: number): string => {
 /** 300,024 */
 export const fmtInt = (value: number): string => int.format(Math.round(value))
 
-/** 300K / 2.8M */
-export const fmtCompact = (value: number): string => {
-  const abs = Math.abs(value)
-  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
-  if (abs >= 10_000) return `${Math.round(value / 1_000)}K`
-  if (abs >= 1_000) return `${(value / 1_000).toFixed(1)}K`
-  return fmtInt(value)
-}
-
 /** 0.4 → 40.0% */
 export const fmtPercent = (value: number, digits = 1): string =>
   `${(value * 100).toFixed(digits)}%`
-
-/** 带符号的百分比：+3.2% / −1.8% */
-export const fmtDelta = (value: number, digits = 1): string => {
-  const sign = value > 0 ? '+' : value < 0 ? '−' : ''
-  return `${sign}${Math.abs(value * 100).toFixed(digits)}%`
-}
 
 /** '2002-08-02' → '2002.08' */
 export const fmtYearMonth = (value: string): string => {
@@ -73,61 +59,39 @@ export const fmtDate = (value: string): string => {
 /* 版式原语                                                            */
 /* ------------------------------------------------------------------ */
 
-/** 一节：标题 + 可选的导语与右侧注释。 */
+/**
+ * 一节 = 一句结论 + 一段话 + 一块图。
+ * 标题本身就是结论，所以不再另加小标签或编号。
+ */
 export function Section({
-  eyebrow,
   title,
   lede,
-  aside,
   children,
-  className = '',
 }: {
-  eyebrow?: string
   title: string
   lede?: ReactNode
-  aside?: ReactNode
   children: ReactNode
-  className?: string
 }) {
   return (
-    <section className={`border-t border-rule pt-10 ${className}`}>
-      <header className="mb-7 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-        <div className="max-w-[62ch]">
-          {eyebrow ? (
-            <p className="font-mono text-[10.5px] tracking-[0.22em] text-accent uppercase">
-              {eyebrow}
-            </p>
-          ) : null}
-          <h2 className="mt-2 text-[26px] leading-tight font-semibold tracking-[-0.02em] text-ink sm:text-[30px]">
-            {title}
-          </h2>
-          {lede ? (
-            <p className="mt-3 text-[14px] leading-[1.7] text-ink-soft">{lede}</p>
-          ) : null}
-        </div>
-        {aside ? <div className="shrink-0 text-[11.5px] text-ink-faint">{aside}</div> : null}
-      </header>
-      {children}
+    <section className="mt-14 border-t border-rule pt-12">
+      <h2 className="max-w-[26ch] text-[21px] leading-[1.3] font-semibold tracking-[-0.01em] text-ink sm:text-[24px]">
+        {title}
+      </h2>
+      {lede ? (
+        <p className="mt-3.5 max-w-[62ch] text-[14.5px] leading-[1.75] text-ink-soft">{lede}</p>
+      ) : null}
+      <div className="mt-9">{children}</div>
     </section>
   )
 }
 
-/** 图例：一行小色块 + 文字。 */
-export function Legend({ items }: { items: Array<{ label: string; color: string }> }) {
-  return (
-    <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
-      {items.map((item) => (
-        <li key={item.label} className="flex items-center gap-1.5 text-[11px] text-ink-soft">
-          <span className="h-2 w-2 rounded-[2px]" style={{ background: item.color }} />
-          {item.label}
-        </li>
-      ))}
-    </ul>
-  )
+/** 图注：一行小字，说明怎么读这张图。 */
+export function Caption({ children }: { children: ReactNode }) {
+  return <p className="mt-4 text-[11.5px] leading-relaxed text-ink-faint">{children}</p>
 }
 
 /* ------------------------------------------------------------------ */
-/* 薪酬分布：直方图 + 中位数/均值标记                                    */
+/* 薪酬分布：直方图 + 中位数/均值两条标记                                 */
 /* ------------------------------------------------------------------ */
 
 export function DistributionChart({
@@ -142,14 +106,15 @@ export function DistributionChart({
   if (buckets.length === 0) return null
 
   const W = 760
-  const H = 250
-  const padTop = 34
-  const padBottom = 38
+  const H = 232
+  const padTop = 26
+  const padBottom = 34
   const innerH = H - padTop - padBottom
   const max = Math.max(...buckets.map((b) => b.count), 1)
   const slot = W / buckets.length
-  const barW = Math.max(slot - 4, 2)
+  const barW = Math.max(slot - 3, 2)
 
+  // 把金额映射到横向像素：先找落在哪一档，再在档内插值。
   const markerX = (value: number) => {
     const index = buckets.findIndex((b) => value >= b.from && value < b.to)
     const slotIndex = index === -1 ? buckets.length - 1 : index
@@ -160,19 +125,15 @@ export function DistributionChart({
   }
 
   const peak = buckets.reduce((best, b) => (b.count > best.count ? b : best), buckets[0])
+  const baseline = padTop + innerH
 
   return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      className="w-full"
-      role="img"
-      aria-label="当前薪资分布直方图"
-    >
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="当前年薪分布">
       <line
         x1={0}
         x2={W}
-        y1={padTop + innerH}
-        y2={padTop + innerH}
+        y1={baseline}
+        y2={baseline}
         stroke="currentColor"
         className="text-rule-strong"
         strokeWidth={1}
@@ -181,70 +142,48 @@ export function DistributionChart({
       {buckets.map((bucket, index) => {
         const h = (bucket.count / max) * innerH
         const x = index * slot + (slot - barW) / 2
-        const y = padTop + innerH - h
+        const y = baseline - h
         const isPeak = bucket === peak
         return (
-          <g key={bucket.from}>
-            <rect
-              x={x}
-              y={y}
-              width={barW}
-              height={Math.max(h, 1)}
-              rx={2}
-              className={isPeak ? 'text-accent' : 'text-ink/30'}
-              fill="currentColor"
-            />
-            {isPeak ? (
-              <text
-                x={x + barW / 2}
-                y={y - 9}
-                textAnchor="middle"
-                className="fill-ink font-mono"
-                fontSize={10.5}
-              >
-                {fmtCompact(bucket.count)}
-              </text>
-            ) : null}
-          </g>
+          <rect
+            key={bucket.from}
+            x={x}
+            y={y}
+            width={barW}
+            height={Math.max(h, 1)}
+            className={isPeak ? 'text-accent' : 'text-ink/22'}
+            fill="currentColor"
+          />
         )
       })}
 
-      {[
-        { value: median, label: '中位数', color: 'var(--color-accent)' },
-        { value: mean, label: '均值', color: 'var(--color-teal)' },
-      ].map((marker) => {
-        const x = markerX(marker.value)
-        return (
-          <g key={marker.label}>
-            <line
-              x1={x}
-              x2={x}
-              y1={padTop - 12}
-              y2={padTop + innerH}
-              stroke={marker.color}
-              strokeWidth={1.4}
-              strokeDasharray="4 3"
-            />
-            <text
-              x={x}
-              y={padTop - 18}
-              textAnchor="middle"
-              fill={marker.color}
-              className="font-mono"
-              fontSize={10}
-            >
-              {marker.label} {fmtMoneyShort(marker.value)}
-            </text>
-          </g>
-        )
-      })}
+      {/* 均值用虚线、中位数用实线；两者接近时也不互相压住。 */}
+      <line
+        x1={markerX(mean)}
+        x2={markerX(mean)}
+        y1={padTop - 8}
+        y2={baseline}
+        stroke="currentColor"
+        className="text-ink-faint"
+        strokeWidth={1}
+        strokeDasharray="3 3"
+      />
+      <line
+        x1={markerX(median)}
+        x2={markerX(median)}
+        y1={padTop - 8}
+        y2={baseline}
+        stroke="currentColor"
+        className="text-accent"
+        strokeWidth={1.5}
+      />
 
       {buckets.map((bucket, index) =>
         index % 2 === 0 ? (
           <text
             key={`x-${bucket.from}`}
             x={index * slot + slot / 2}
-            y={H - 14}
+            y={H - 12}
             textAnchor="middle"
             className="fill-ink-faint font-mono"
             fontSize={10}
@@ -270,151 +209,38 @@ export function RetentionChart({
   const max = Math.max(...data.map((d) => d.hired), 1)
 
   return (
-    <div className="space-y-[5px]">
+    <div className="space-y-1.5">
       {data.map((row) => {
         const hiredW = (row.hired / max) * 100
-        const retention = row.hired > 0 ? row.active / row.hired : 0
+        const keptW = (row.active / max) * 100
+        const retained = row.hired > 0 ? row.active / row.hired : 0
         return (
-          <div key={row.year} className="group flex items-center gap-3">
-            <span className="w-11 shrink-0 font-mono text-[11.5px] tabular text-ink-faint">
+          <div key={row.year} className="group flex items-center gap-4">
+            <span className="w-9 shrink-0 font-mono text-[11px] tabular text-ink-faint">
               {row.year}
             </span>
-            <div className="relative h-[20px] flex-1">
+            <div className="relative h-[17px] flex-1">
               <div
-                className="absolute inset-y-0 left-0 rounded-[2px] bg-ink/12"
+                className="absolute inset-y-0 left-0 rounded-[1px] bg-ink/12"
                 style={{ width: `${hiredW}%` }}
               />
               <div
-                className="absolute inset-y-0 left-0 rounded-[2px] bg-ink/75 transition-colors group-hover:bg-ink"
-                style={{ width: `${(hiredW * row.active) / max}%` }}
+                className="absolute inset-y-0 left-0 rounded-[1px] bg-ink/70 transition-colors group-hover:bg-ink"
+                style={{ width: `${keptW}%` }}
               />
             </div>
-            <span className="w-14 shrink-0 text-right font-mono text-[11.5px] tabular text-ink-soft">
-              {fmtCompact(row.hired)}
-            </span>
-            <span className="w-10 shrink-0 text-right font-mono text-[11.5px] tabular text-ink-faint">
-              {fmtPercent(retention, 0)}
+            <span className="w-9 shrink-0 text-right font-mono text-[11px] tabular text-ink-faint">
+              {fmtPercent(retained, 0)}
             </span>
           </div>
         )
       })}
-      <div className="flex items-center gap-3 pt-2">
-        <span className="w-11 shrink-0" />
-        <span className="flex-1 text-[10px] tracking-[0.14em] text-ink-faint uppercase">
-          深色 = 至今在职
-        </span>
-        <span className="w-14 shrink-0 text-right text-[10px] text-ink-faint">招聘</span>
-        <span className="w-10 shrink-0 text-right text-[10px] text-ink-faint">留存</span>
-      </div>
     </div>
   )
 }
 
 /* ------------------------------------------------------------------ */
-/* 折线：薪酬水平随年份                                                 */
-/* ------------------------------------------------------------------ */
-
-export function TrendChart({
-  points,
-  height = 200,
-}: {
-  points: Array<{ year: number; avgSalary: number }>
-  height?: number
-}) {
-  if (points.length < 2) return null
-  const W = 760
-  const padTop = 22
-  const padBottom = 30
-  const innerH = height - padTop - padBottom
-  const min = Math.min(...points.map((p) => p.avgSalary))
-  const max = Math.max(...points.map((p) => p.avgSalary))
-  const span = max - min || 1
-
-  const coords = points.map((point, index) => ({
-    x: (index / (points.length - 1)) * W,
-    y: padTop + innerH - ((point.avgSalary - min) / span) * innerH,
-    ...point,
-  }))
-
-  const line = coords
-    .map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)},${c.y.toFixed(1)}`)
-    .join(' ')
-  const area = `${line} L ${W},${padTop + innerH} L 0,${padTop + innerH} Z`
-
-  return (
-    <svg
-      viewBox={`0 0 ${W} ${height}`}
-      className="w-full"
-      role="img"
-      aria-label="历年平均薪资"
-    >
-      <defs>
-        <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--color-teal)" stopOpacity="0.18" />
-          <stop offset="100%" stopColor="var(--color-teal)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-
-      {[0, 0.5, 1].map((tick) => (
-        <line
-          key={tick}
-          x1={0}
-          x2={W}
-          y1={padTop + innerH * tick}
-          y2={padTop + innerH * tick}
-          stroke="currentColor"
-          className="text-rule"
-          strokeDasharray="2 5"
-        />
-      ))}
-
-      <path d={area} fill="url(#trend-fill)" />
-      <path
-        d={line}
-        fill="none"
-        stroke="var(--color-teal)"
-        strokeWidth={1.8}
-        strokeLinejoin="round"
-      />
-
-      {coords.map((c, index) => {
-        const step = Math.ceil(coords.length / 8)
-        if (index % step !== 0 && index !== coords.length - 1) return null
-        return (
-          <g key={c.year}>
-            <circle
-              cx={c.x}
-              cy={c.y}
-              r={2.6}
-              fill="var(--color-paper-raised)"
-              stroke="var(--color-teal)"
-              strokeWidth={1.5}
-            />
-            <text
-              x={c.x}
-              y={height - 9}
-              textAnchor={index === coords.length - 1 ? 'end' : index === 0 ? 'start' : 'middle'}
-              className="fill-ink-faint font-mono"
-              fontSize={10}
-            >
-              {c.year}
-            </text>
-          </g>
-        )
-      })}
-
-      <text x={0} y={padTop - 7} className="fill-ink-faint font-mono" fontSize={10}>
-        {fmtMoneyShort(max)}
-      </text>
-      <text x={0} y={padTop + innerH - 4} className="fill-ink-faint font-mono" fontSize={10}>
-        {fmtMoneyShort(min)}
-      </text>
-    </svg>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* 区间条：薪酬跨度（最低–最高，竖线为中位数）                            */
+/* 区间条：最低–最高，竖线为中位数                                       */
 /* ------------------------------------------------------------------ */
 
 export function RangeBar({
@@ -423,14 +249,12 @@ export function RangeBar({
   median,
   domainMin,
   domainMax,
-  tone = 'ink',
 }: {
   min: number
   max: number
   median: number
   domainMin: number
   domainMax: number
-  tone?: 'ink' | 'accent'
 }) {
   const span = domainMax - domainMin || 1
   const pos = (value: number) => ((value - domainMin) / span) * 100
@@ -439,19 +263,15 @@ export function RangeBar({
   const mid = Math.min(Math.max(pos(median), 0), 100)
 
   return (
-    <div className="relative h-[7px] w-full rounded-full bg-ink/[0.06]">
+    <div className="relative h-[6px] w-full rounded-full bg-ink/[0.05]">
       <div
-        className={`absolute inset-y-0 rounded-full ${tone === 'accent' ? 'bg-accent/30' : 'bg-ink/22'}`}
+        className="absolute inset-y-0 rounded-full bg-ink/22"
         style={{ left: `${left}%`, width: `${Math.max(right - left, 1)}%` }}
       />
       <div
-        className={`absolute top-1/2 h-[11px] w-[2px] -translate-y-1/2 rounded-full ${
-          tone === 'accent' ? 'bg-accent' : 'bg-ink'
-        }`}
+        className="absolute top-1/2 h-[10px] w-[1.5px] -translate-y-1/2 rounded-full bg-ink"
         style={{ left: `${mid}%` }}
       />
     </div>
   )
 }
-
-

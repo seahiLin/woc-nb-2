@@ -21,7 +21,7 @@ import {
   title,
 } from '../db/schema'
 import type { Queryable } from './neon.server'
-import { databaseName, withDb } from './neon.server'
+import { withDb } from './neon.server'
 import type {
   Dashboard,
   DepartmentStat,
@@ -31,7 +31,6 @@ import type {
   SalaryBucket,
   TitleStat,
   TopEarner,
-  TrendPoint,
 } from './dashboard-types'
 
 /** 当前有效的日期哨兵值。 */
@@ -117,21 +116,14 @@ type TotalsRow = {
   employees: number
   active_employees: number
   departments: number
-  salary_records: number
-  title_records: number
-  assignment_records: number
-  manager_records: number
   avg_salary: number
   median_salary: number
   p25_salary: number
   p75_salary: number
   min_salary: number
   max_salary: number
-  first_hire: string
-  last_hire: string
   avg_tenure_years: number
   as_of: string
-  database_name: string
 }
 
 async function loadTotals(db: Queryable) {
@@ -151,10 +143,6 @@ async function loadTotals(db: Queryable) {
         (select count(*) from ${employee})::int as employees,
         (select count(*) from cur_dept)::int as active_employees,
         (select count(*) from ${department})::int as departments,
-        (select count(*) from ${salary})::int as salary_records,
-        (select count(*) from ${title})::int as title_records,
-        (select count(*) from ${departmentEmployee})::int as assignment_records,
-        (select count(*) from ${departmentManager})::int as manager_records,
         (select round(avg(amount)) from cur_salary)::int as avg_salary,
         (select round(percentile_cont(0.5) within group (order by amount))
           from cur_salary)::int as median_salary,
@@ -164,13 +152,10 @@ async function loadTotals(db: Queryable) {
           from cur_salary)::int as p75_salary,
         (select min(amount) from cur_salary)::int as min_salary,
         (select max(amount) from cur_salary)::int as max_salary,
-        (select min(${employee.hireDate})::text from ${employee}) as first_hire,
-        (select max(${employee.hireDate})::text from ${employee}) as last_hire,
         (select round(avg(((select * from as_of) - ${employee.hireDate}) / 365.25))
            from ${employee}
            join cur_dept on cur_dept.employee_id = ${employee.id})::int as avg_tenure_years,
-        (select * from as_of)::text as as_of,
-        current_database() as database_name
+        (select * from as_of)::text as as_of
     `,
   )
 
@@ -351,26 +336,6 @@ async function loadGender(db: Queryable) {
   }
 }
 
-async function loadTrend(db: Queryable) {
-  const year = sql<number>`extract(year from ${salary.fromDate})::int`
-
-  const rows = await db
-    .select({
-      year,
-      avgSalary: sql<number>`round(avg(${salary.amount}))::int`,
-      records: count(),
-    })
-    .from(salary)
-    .groupBy(year)
-    .orderBy(asc(year))
-
-  return rows.map<TrendPoint>((row) => ({
-    year: num(row.year),
-    avgSalary: num(row.avgSalary),
-    records: num(row.records),
-  }))
-}
-
 async function loadTopEarners(db: Queryable) {
   const curSalary = currentSalary(db)
 
@@ -424,30 +389,21 @@ export async function loadDashboard(connectionString: string): Promise<Dashboard
         const departments = await loadDepartments(tx)
         const titles = await loadTitles(tx)
         const gender = await loadGender(tx)
-        const salaryTrend = await loadTrend(tx)
         const topEarners = await loadTopEarners(tx)
 
         return {
           generatedAt: new Date().toISOString(),
-          source: 'neon',
-          database: str(totals.database_name) || databaseName(connectionString),
           asOf: str(totals.as_of).slice(0, 10),
           totals: {
             employees: num(totals.employees),
             activeEmployees: num(totals.active_employees),
             departments: num(totals.departments),
-            salaryRecords: num(totals.salary_records),
-            titleRecords: num(totals.title_records),
-            assignmentRecords: num(totals.assignment_records),
-            managerRecords: num(totals.manager_records),
             avgSalary: num(totals.avg_salary),
             medianSalary: num(totals.median_salary),
             p25Salary: num(totals.p25_salary),
             p75Salary: num(totals.p75_salary),
             minSalary: num(totals.min_salary),
             maxSalary: num(totals.max_salary),
-            firstHire: str(totals.first_hire),
-            lastHire: str(totals.last_hire),
             avgTenureYears: num(totals.avg_tenure_years),
           },
           distribution: {
@@ -463,7 +419,6 @@ export async function loadDashboard(connectionString: string): Promise<Dashboard
           departments,
           titles,
           gender,
-          salaryTrend,
           topEarners,
         } satisfies Dashboard
       },
@@ -530,13 +485,5 @@ export async function searchEmployees(
         hireDate: str(row.hireDate).slice(0, 10),
       })),
     }
-  })
-}
-
-/** 连接自检：给页面一个“重新连接”的按钮。 */
-export async function pingDatabase(connectionString: string): Promise<string> {
-  return withDb(connectionString, async (db) => {
-    const result = await rawRows<{ name: string }>(db, sql`select current_database() as name`)
-    return str(result[0]?.name)
   })
 }

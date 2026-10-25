@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
 /*
- * 设计取向：暖白纸面 + 深墨字 + 一点朱红。
- * 像一份排版讲究的分析报告：大数字、克制的色、留白多于线。
+ * 设计取向：暖白纸面 + 深墨字，只用一种强调色（朱红）。
+ *
+ * 克制的做法：
+ *   - 一个强调色，只标记“最该被看到的那一个值”，其余全部靠墨色深浅分层；
+ *   - 不画卡片底色、不加阴影，用留白和细分隔线划分区域；
+ *   - 字重只用 400 / 500 / 600，字号层级少而拉开。
  *
  * 颜色全部走语义 token，图表里的 currentColor 会自动跟随。
  */
@@ -14,28 +18,19 @@
     ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
 
   /* 纸面 */
-  --color-paper: #f5f2ec;
-  --color-paper-raised: #fffdf9;
-  --color-paper-sunken: #ebe7de;
+  --color-paper: #f6f3ee;
 
   /* 墨色层级：主文 / 次文 / 弱文 */
-  --color-ink: #131519;
-  --color-ink-soft: #575c66;
-  --color-ink-faint: #8b909a;
+  --color-ink: #16181c;
+  --color-ink-soft: #5a5f68;
+  --color-ink-faint: #9096a0;
 
   /* 分隔线 */
-  --color-rule: #e2ddd2;
-  --color-rule-strong: #cbc4b6;
+  --color-rule: #e3ded4;
+  --color-rule-strong: #cdc6b8;
 
-  /* 强调色：朱红，只给“当前值 / 关键结论” */
+  /* 唯一的强调色 */
   --color-accent: #b23c17;
-  --color-accent-soft: #fbeee6;
-  --color-accent-line: #e8c9b8;
-
-  /* 图表辅助色 */
-  --color-teal: #10665c;
-  --color-teal-soft: #dfeeea;
-  --color-gold: #a2762a;
 
   --color-danger: #a52a1c;
 }
@@ -80,11 +75,11 @@ body {
   background: transparent;
 }
 
-/* 首屏元素轻微上浮入场，只播一次 */
+/* 首屏轻微上浮入场，只播一次 */
 @keyframes settle {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
@@ -96,24 +91,8 @@ body {
   animation: settle 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* 条形从 0 长出来 */
-@keyframes grow {
-  from {
-    transform: scaleX(0);
-  }
-  to {
-    transform: scaleX(1);
-  }
-}
-
-.grow {
-  transform-origin: left center;
-  animation: grow 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .settle,
-  .grow {
+  .settle {
     animation: none;
   }
 }

@@ -12,7 +12,7 @@
 
 import { createServerFn } from '@tanstack/react-start'
 import type { Dashboard, SearchResult } from './dashboard-types'
-import { loadDashboard, pingDatabase, searchEmployees } from './employees.queries.server'
+import { loadDashboard, searchEmployees } from './employees.queries.server'
 import { readSnapshot, writeSnapshot } from './snapshot.server'
 import { connectionString } from './worker-env.server'
 
@@ -22,8 +22,6 @@ const SNAPSHOT_TTL_MS = 10 * 60 * 1000
 export interface DashboardResult {
   dashboard: Dashboard | null
   error: string | null
-  /** 数据是否来自实时查询（false = 用的是快照）。 */
-  live: boolean
 }
 
 function snapshotAge(dashboard: Dashboard): number {
@@ -38,18 +36,17 @@ export const getDashboard = createServerFn({ method: 'GET' })
     // 先看快照：够新就直接用，页面打开几乎瞬时。
     const cached = await readSnapshot()
     if (!data.force && cached && snapshotAge(cached) < SNAPSHOT_TTL_MS) {
-      return { dashboard: cached, error: null, live: false }
+      return { dashboard: cached, error: null }
     }
 
     try {
       const dashboard = await loadDashboard(connectionString())
       await writeSnapshot(dashboard)
-      return { dashboard, error: null, live: true }
+      return { dashboard, error: null }
     } catch (error) {
       return {
         dashboard: cached,
         error: error instanceof Error ? error.message : '查询失败',
-        live: false,
       }
     }
   })
@@ -73,17 +70,3 @@ export const findEmployees = createServerFn({ method: 'GET' })
     }
   })
 
-/** 连接自检：给页面一个“重新连接”的按钮。 */
-export const pingDatabaseFn = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<{ ok: boolean; database: string | null; error: string | null }> => {
-    try {
-      return { ok: true, database: await pingDatabase(connectionString()), error: null }
-    } catch (error) {
-      return {
-        ok: false,
-        database: null,
-        error: error instanceof Error ? error.message : '数据库不可用',
-      }
-    }
-  },
-)
