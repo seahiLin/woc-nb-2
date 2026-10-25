@@ -1,11 +1,10 @@
 @import "tailwindcss";
 
 /*
- * 设计取向：浅色纸面 + 细线 + 紧凑的无衬线字体 + 等宽数字。
- * 参考的是印刷版分析报告，而不是深色监控大屏。
+ * 设计取向：暖白纸面 + 深墨字 + 一点朱红。
+ * 像一份排版讲究的分析报告：大数字、克制的色、留白多于线。
  *
- * 颜色全部走语义 token（ink / rule / accent），
- * 这样图表里的 `currentColor` 和 `text-ink-faint` 能自动跟随主题。
+ * 颜色全部走语义 token，图表里的 currentColor 会自动跟随。
  */
 @theme {
   --font-sans:
@@ -15,35 +14,39 @@
     ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
 
   /* 纸面 */
-  --color-paper: #faf9f7;
-  --color-paper-raised: #ffffff;
+  --color-paper: #f5f2ec;
+  --color-paper-raised: #fffdf9;
+  --color-paper-sunken: #ebe7de;
 
   /* 墨色层级：主文 / 次文 / 弱文 */
-  --color-ink: #16181d;
-  --color-ink-soft: #565b66;
-  --color-ink-faint: #8b909b;
+  --color-ink: #131519;
+  --color-ink-soft: #575c66;
+  --color-ink-faint: #8b909a;
 
   /* 分隔线 */
-  --color-rule: #e7e4df;
-  --color-rule-strong: #d5d1ca;
+  --color-rule: #e2ddd2;
+  --color-rule-strong: #cbc4b6;
 
-  /* 强调色：只用于“当前值/中位数”这类需要被一眼看到的东西 */
-  --color-accent: #c2410c;
-  --color-accent-soft: #fef3ec;
+  /* 强调色：朱红，只给“当前值 / 关键结论” */
+  --color-accent: #b23c17;
+  --color-accent-soft: #fbeee6;
+  --color-accent-line: #e8c9b8;
 
-  /* 状态色 */
-  --color-live: #0f766e;
-  --color-warn: #b45309;
-  --color-danger: #b91c1c;
+  /* 图表辅助色 */
+  --color-teal: #10665c;
+  --color-teal-soft: #dfeeea;
+  --color-gold: #a2762a;
+
+  --color-danger: #a52a1c;
 }
 
 html {
   -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
 }
 
 body {
   font-family: var(--font-sans);
-  /* 数字一律等宽，表格和 KPI 才能对齐 */
   font-feature-settings: "tnum" 1, "cv05" 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -51,7 +54,7 @@ body {
   color: var(--color-ink);
 }
 
-/* 数字类文本统一等宽数字 */
+/* 数字统一等宽，表格和 KPI 才能对齐 */
 .tabular {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum" 1;
@@ -81,7 +84,7 @@ body {
 @keyframes settle {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
@@ -90,11 +93,27 @@ body {
 }
 
 .settle {
-  animation: settle 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: settle 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* 条形从 0 长出来 */
+@keyframes grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+.grow {
+  transform-origin: left center;
+  animation: grow 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .settle {
+  .settle,
+  .grow {
     animation: none;
   }
 }

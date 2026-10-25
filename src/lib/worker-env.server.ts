@@ -7,19 +7,10 @@
 
 import { env } from 'cloudflare:workers'
 
-/** 只声明用到的那一点点 D1 API，避免依赖 workers 类型包。 */
-export interface D1Like {
-  prepare(query: string): {
-    bind(...values: unknown[]): {
-      first<T = unknown>(): Promise<T | null>
-      run(): Promise<unknown>
-    }
-  }
-}
-
 interface WorkerEnv {
   CONNECTION_STRING?: string
-  DB?: D1Like
+  /** D1 binding。类型由 `drizzle-orm/d1` 负责，这里只当不透明句柄。 */
+  DB?: unknown
 }
 
 export function readWorkerEnv(): WorkerEnv {
@@ -34,13 +25,12 @@ export function connectionString(): string {
   const value = runtime.CONNECTION_STRING ?? fallback
 
   if (!value) {
-    throw new Error(
-      '缺少 CONNECTION_STRING。请在 Tria 的 Secrets 里为这个 Worker 配置 Neon 连接串。',
-    )
+    throw new Error('数据库连接尚未配置。')
   }
   return value
 }
 
-export function d1(): D1Like | null {
+/** D1 binding（没配就是 null）。 */
+export function d1Binding(): unknown | null {
   return readWorkerEnv().DB ?? null
 }

@@ -1,9 +1,10 @@
 /**
- * 页面与 Neon 之间唯一的桥（服务端函数）。
+ * 页面与数据库之间唯一的桥（服务端函数）。
  *
  * - 连接串从 Worker secret `CONNECTION_STRING` 读取，只存在于服务端。
- * - 每次成功查询后，把聚合结果顺手写进 D1 快照表；Neon 抽风时页面
- *   还能展示“最近一次成功的数据”，并明确标注为缓存。
+ * - 每次成功查询后，把聚合结果顺手写进 D1 快照。快照有两个用处：
+ *   1. 十分钟内再打开页面直接用它，不必重跑那十来条聚合查询；
+ *   2. 数据库暂时不可用时兜底，页面标注为缓存。
  *
  * `*.server.ts` 在客户端构建里会被 TanStack Start 的 import protection
  * 拦掉，所以这里引用的数据库代码不会进浏览器。
@@ -11,32 +12,47 @@
 
 import { createServerFn } from '@tanstack/react-start'
 import type { Dashboard, SearchResult } from './dashboard-types'
-import { loadDashboard, searchEmployees } from './employees.queries.server'
-import { neonPing } from './neon.server'
+import { loadDashboard, pingDatabase, searchEmployees } from './employees.queries.server'
 import { readSnapshot, writeSnapshot } from './snapshot.server'
 import { connectionString } from './worker-env.server'
+
+/** 快照多久之内可以直接复用。 */
+const SNAPSHOT_TTL_MS = 10 * 60 * 1000
 
 export interface DashboardResult {
   dashboard: Dashboard | null
   error: string | null
-  /** Neon 是否可用（决定页面上那枚状态灯）。 */
+  /** 数据是否来自实时查询（false = 用的是快照）。 */
   live: boolean
 }
 
-/** 拉取整份看板数据。 */
-export const getDashboard = createServerFn({ method: 'GET' }).handler(
-  async (): Promise<DashboardResult> => {
+function snapshotAge(dashboard: Dashboard): number {
+  const time = Date.parse(dashboard.generatedAt)
+  return Number.isNaN(time) ? Number.POSITIVE_INFINITY : Date.now() - time
+}
+
+/** 拉取整份看板数据。`force` 跳过快照、强制回源。 */
+export const getDashboard = createServerFn({ method: 'GET' })
+  .validator((data: { force?: boolean } | undefined) => ({ force: Boolean(data?.force) }))
+  .handler(async ({ data }): Promise<DashboardResult> => {
+    // 先看快照：够新就直接用，页面打开几乎瞬时。
+    const cached = await readSnapshot()
+    if (!data.force && cached && snapshotAge(cached) < SNAPSHOT_TTL_MS) {
+      return { dashboard: cached, error: null, live: false }
+    }
+
     try {
       const dashboard = await loadDashboard(connectionString())
       await writeSnapshot(dashboard)
       return { dashboard, error: null, live: true }
     } catch (error) {
-      const snapshot = await readSnapshot()
-      const message = error instanceof Error ? error.message : 'Neon 查询失败'
-      return { dashboard: snapshot, error: message, live: false }
+      return {
+        dashboard: cached,
+        error: error instanceof Error ? error.message : '查询失败',
+        live: false,
+      }
     }
-  },
-)
+  })
 
 /** 员工检索：按工号 / 姓 / 名。 */
 export const findEmployees = createServerFn({ method: 'GET' })
@@ -52,21 +68,21 @@ export const findEmployees = createServerFn({ method: 'GET' })
       return {
         rows: [],
         truncated: false,
-        error: error instanceof Error ? error.message : 'Neon 查询失败',
+        error: error instanceof Error ? error.message : '查询失败',
       }
     }
   })
 
-/** 连接自检：给页面一个“重新连接 Neon”的按钮。 */
-export const pingNeonFn = createServerFn({ method: 'GET' }).handler(
+/** 连接自检：给页面一个“重新连接”的按钮。 */
+export const pingDatabaseFn = createServerFn({ method: 'GET' }).handler(
   async (): Promise<{ ok: boolean; database: string | null; error: string | null }> => {
     try {
-      return { ok: true, database: await neonPing(connectionString()), error: null }
+      return { ok: true, database: await pingDatabase(connectionString()), error: null }
     } catch (error) {
       return {
         ok: false,
         database: null,
-        error: error instanceof Error ? error.message : 'Neon 不可用',
+        error: error instanceof Error ? error.message : '数据库不可用',
       }
     }
   },

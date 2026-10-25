@@ -1,9 +1,8 @@
 /**
  * 图表原语与格式化工具。
  *
- * 设计取向：浅色纸面 + 细线 + 大字号数字，像一份印出来的分析报告，
- * 而不是常见的深色“监控大屏”。不引图表库，全部手写 SVG —— 数据量小、
- * 形状固定，手写反而更可控，也不给客户端加体积。
+ * 不引图表库：数据量小、形状固定，手写 SVG 更可控，也不给客户端加体积。
+ * 所有颜色走 CSS 变量，图表里的 `currentColor` 会自动跟随主题。
  */
 
 import type { ReactNode } from 'react'
@@ -23,7 +22,7 @@ const int = new Intl.NumberFormat('en-US')
 /** $72,012 */
 export const fmtMoney = (value: number): string => usd.format(Math.round(value))
 
-/** $72.0K / $1.2M */
+/** $72K / $1.2M */
 export const fmtMoneyShort = (value: number): string => {
   const abs = Math.abs(value)
   if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
@@ -34,7 +33,7 @@ export const fmtMoneyShort = (value: number): string => {
 /** 300,024 */
 export const fmtInt = (value: number): string => int.format(Math.round(value))
 
-/** 300.0K / 2.8M */
+/** 300K / 2.8M */
 export const fmtCompact = (value: number): string => {
   const abs = Math.abs(value)
   if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
@@ -44,7 +43,8 @@ export const fmtCompact = (value: number): string => {
 }
 
 /** 0.4 → 40.0% */
-export const fmtPercent = (value: number, digits = 1): string => `${(value * 100).toFixed(digits)}%`
+export const fmtPercent = (value: number, digits = 1): string =>
+  `${(value * 100).toFixed(digits)}%`
 
 /** 带符号的百分比：+3.2% / −1.8% */
 export const fmtDelta = (value: number, digits = 1): string => {
@@ -73,35 +73,39 @@ export const fmtDate = (value: string): string => {
 /* 版式原语                                                            */
 /* ------------------------------------------------------------------ */
 
-/** 一节：编号 + 标题 + 可选的导语与右侧注释。 */
+/** 一节：标题 + 可选的导语与右侧注释。 */
 export function Section({
-  index,
+  eyebrow,
   title,
   lede,
   aside,
   children,
+  className = '',
 }: {
-  index: string
+  eyebrow?: string
   title: string
   lede?: ReactNode
   aside?: ReactNode
   children: ReactNode
+  className?: string
 }) {
   return (
-    <section className="border-t border-rule pt-8">
-      <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="max-w-2xl">
-          <div className="flex items-baseline gap-3">
-            <span className="font-mono text-[11px] tracking-[0.2em] text-ink-faint">{index}</span>
-            <h2 className="text-[19px] font-semibold tracking-tight text-ink">{title}</h2>
-          </div>
-          {lede ? (
-            <p className="mt-2 text-[13.5px] leading-relaxed text-ink-soft sm:pl-[calc(11px+0.75rem)]">
-              {lede}
+    <section className={`border-t border-rule pt-10 ${className}`}>
+      <header className="mb-7 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="max-w-[62ch]">
+          {eyebrow ? (
+            <p className="font-mono text-[10.5px] tracking-[0.22em] text-accent uppercase">
+              {eyebrow}
             </p>
           ) : null}
+          <h2 className="mt-2 text-[26px] leading-tight font-semibold tracking-[-0.02em] text-ink sm:text-[30px]">
+            {title}
+          </h2>
+          {lede ? (
+            <p className="mt-3 text-[14px] leading-[1.7] text-ink-soft">{lede}</p>
+          ) : null}
         </div>
-        {aside ? <div className="shrink-0 text-[11px] text-ink-faint">{aside}</div> : null}
+        {aside ? <div className="shrink-0 text-[11.5px] text-ink-faint">{aside}</div> : null}
       </header>
       {children}
     </section>
@@ -137,115 +141,124 @@ export function DistributionChart({
 }) {
   if (buckets.length === 0) return null
 
-  const W = 720
-  const H = 220
-  const padTop = 26
-  const padBottom = 34
+  const W = 760
+  const H = 250
+  const padTop = 34
+  const padBottom = 38
   const innerH = H - padTop - padBottom
   const max = Math.max(...buckets.map((b) => b.count), 1)
   const slot = W / buckets.length
-  const barW = Math.max(slot - 3, 2)
+  const barW = Math.max(slot - 4, 2)
 
-  // 中位数/均值落在哪一档，就在那一档上画一条竖线。
   const markerX = (value: number) => {
     const index = buckets.findIndex((b) => value >= b.from && value < b.to)
     const slotIndex = index === -1 ? buckets.length - 1 : index
     const bucket = buckets[slotIndex]
-    const within = bucket.to === bucket.from ? 0.5 : (value - bucket.from) / (bucket.to - bucket.from)
+    const within =
+      bucket.to === bucket.from ? 0.5 : (value - bucket.from) / (bucket.to - bucket.from)
     return slotIndex * slot + Math.min(Math.max(within, 0), 1) * slot
   }
 
   const peak = buckets.reduce((best, b) => (b.count > best.count ? b : best), buckets[0])
 
   return (
-    <div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="当前薪资分布直方图">
-        {/* 基线 */}
-        <line
-          x1={0}
-          x2={W}
-          y1={padTop + innerH}
-          y2={padTop + innerH}
-          stroke="currentColor"
-          className="text-rule-strong"
-          strokeWidth={1}
-        />
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className="w-full"
+      role="img"
+      aria-label="当前薪资分布直方图"
+    >
+      <line
+        x1={0}
+        x2={W}
+        y1={padTop + innerH}
+        y2={padTop + innerH}
+        stroke="currentColor"
+        className="text-rule-strong"
+        strokeWidth={1}
+      />
 
-        {buckets.map((bucket, index) => {
-          const h = (bucket.count / max) * innerH
-          const x = index * slot + (slot - barW) / 2
-          const y = padTop + innerH - h
-          const isPeak = bucket === peak
-          return (
-            <g key={bucket.from}>
-              <rect
-                x={x}
-                y={y}
-                width={barW}
-                height={Math.max(h, 1)}
-                rx={1.5}
-                className={isPeak ? 'text-ink' : 'text-ink/25'}
-                fill="currentColor"
-              />
-              {isPeak ? (
-                <text
-                  x={x + barW / 2}
-                  y={y - 7}
-                  textAnchor="middle"
-                  className="fill-ink font-mono"
-                  fontSize={10}
-                >
-                  {fmtCompact(bucket.count)}
-                </text>
-              ) : null}
-            </g>
-          )
-        })}
+      {buckets.map((bucket, index) => {
+        const h = (bucket.count / max) * innerH
+        const x = index * slot + (slot - barW) / 2
+        const y = padTop + innerH - h
+        const isPeak = bucket === peak
+        return (
+          <g key={bucket.from}>
+            <rect
+              x={x}
+              y={y}
+              width={barW}
+              height={Math.max(h, 1)}
+              rx={2}
+              className={isPeak ? 'text-accent' : 'text-ink/30'}
+              fill="currentColor"
+            />
+            {isPeak ? (
+              <text
+                x={x + barW / 2}
+                y={y - 9}
+                textAnchor="middle"
+                className="fill-ink font-mono"
+                fontSize={10.5}
+              >
+                {fmtCompact(bucket.count)}
+              </text>
+            ) : null}
+          </g>
+        )
+      })}
 
-        {/* 中位数 / 均值参考线 */}
-        {[
-          { value: median, label: '中位数', color: '#c2410c' },
-          { value: mean, label: '均值', color: '#1d4ed8' },
-        ].map((marker) => {
-          const x = markerX(marker.value)
-          return (
-            <g key={marker.label}>
-              <line
-                x1={x}
-                x2={x}
-                y1={padTop - 6}
-                y2={padTop + innerH}
-                stroke={marker.color}
-                strokeWidth={1.25}
-                strokeDasharray="3 3"
-              />
-              <circle cx={x} cy={padTop - 6} r={2.5} fill={marker.color} />
-            </g>
-          )
-        })}
-
-        {/* 横轴刻度：每两档标一次，避免拥挤 */}
-        {buckets.map((bucket, index) =>
-          index % 2 === 0 ? (
+      {[
+        { value: median, label: '中位数', color: 'var(--color-accent)' },
+        { value: mean, label: '均值', color: 'var(--color-teal)' },
+      ].map((marker) => {
+        const x = markerX(marker.value)
+        return (
+          <g key={marker.label}>
+            <line
+              x1={x}
+              x2={x}
+              y1={padTop - 12}
+              y2={padTop + innerH}
+              stroke={marker.color}
+              strokeWidth={1.4}
+              strokeDasharray="4 3"
+            />
             <text
-              key={`x-${bucket.from}`}
-              x={index * slot + slot / 2}
-              y={H - 12}
+              x={x}
+              y={padTop - 18}
               textAnchor="middle"
-              className="fill-ink-faint font-mono"
-              fontSize={9.5}
+              fill={marker.color}
+              className="font-mono"
+              fontSize={10}
             >
-              {bucket.from >= 120_000 ? '120K+' : `${bucket.from / 1000}K`}
+              {marker.label} {fmtMoneyShort(marker.value)}
             </text>
-          ) : null,
-        )}
-      </svg>
-    </div>
+          </g>
+        )
+      })}
+
+      {buckets.map((bucket, index) =>
+        index % 2 === 0 ? (
+          <text
+            key={`x-${bucket.from}`}
+            x={index * slot + slot / 2}
+            y={H - 14}
+            textAnchor="middle"
+            className="fill-ink-faint font-mono"
+            fontSize={10}
+          >
+            {bucket.from >= 120_000 ? '120K+' : `${bucket.from / 1000}K`}
+          </text>
+        ) : null,
+      )}
+    </svg>
   )
 }
 
 /* ------------------------------------------------------------------ */
-/* 留存：堆叠条 —— 每年招的人里，多少人还在                              */
+/* 留存：每年招的人里，多少人还在                                        */
 /* ------------------------------------------------------------------ */
 
 export function RetentionChart({
@@ -255,49 +268,43 @@ export function RetentionChart({
 }) {
   if (data.length === 0) return null
   const max = Math.max(...data.map((d) => d.hired), 1)
-  const totalHired = data.reduce((sum, d) => sum + d.hired, 0)
 
   return (
-    <div className="space-y-[3px]">
+    <div className="space-y-[5px]">
       {data.map((row) => {
         const hiredW = (row.hired / max) * 100
-        const activeW = row.hired > 0 ? (row.active / row.hired) * 100 : 0
         const retention = row.hired > 0 ? row.active / row.hired : 0
         return (
           <div key={row.year} className="group flex items-center gap-3">
-            <span className="w-10 shrink-0 font-mono text-[11px] tabular-nums text-ink-faint">
+            <span className="w-11 shrink-0 font-mono text-[11.5px] tabular text-ink-faint">
               {row.year}
             </span>
-            <div className="relative h-[18px] flex-1">
+            <div className="relative h-[20px] flex-1">
               <div
-                className="absolute inset-y-0 left-0 rounded-[2px] bg-ink/10 transition-colors group-hover:bg-ink/15"
+                className="absolute inset-y-0 left-0 rounded-[2px] bg-ink/12"
                 style={{ width: `${hiredW}%` }}
               />
               <div
-                className="absolute inset-y-0 left-0 rounded-[2px] bg-ink/70 transition-colors group-hover:bg-ink"
-                style={{ width: `${(hiredW * activeW) / 100}%` }}
+                className="absolute inset-y-0 left-0 rounded-[2px] bg-ink/75 transition-colors group-hover:bg-ink"
+                style={{ width: `${(hiredW * row.active) / max}%` }}
               />
             </div>
-            <span className="w-12 shrink-0 text-right font-mono text-[11px] tabular-nums text-ink-soft">
+            <span className="w-14 shrink-0 text-right font-mono text-[11.5px] tabular text-ink-soft">
               {fmtCompact(row.hired)}
             </span>
-            <span
-              className={`w-11 shrink-0 text-right font-mono text-[11px] tabular-nums ${
-                retention >= 0.8 ? 'text-ink-soft' : 'text-ink-faint'
-              }`}
-            >
+            <span className="w-10 shrink-0 text-right font-mono text-[11.5px] tabular text-ink-faint">
               {fmtPercent(retention, 0)}
             </span>
           </div>
         )
       })}
       <div className="flex items-center gap-3 pt-2">
-        <span className="w-10 shrink-0" />
-        <span className="flex-1 text-[10px] tracking-wide text-ink-faint uppercase">
-          合计 {fmtInt(totalHired)} 人入职
+        <span className="w-11 shrink-0" />
+        <span className="flex-1 text-[10px] tracking-[0.14em] text-ink-faint uppercase">
+          深色 = 至今在职
         </span>
-        <span className="w-12 shrink-0 text-right text-[10px] text-ink-faint">招聘</span>
-        <span className="w-11 shrink-0 text-right text-[10px] text-ink-faint">留存</span>
+        <span className="w-14 shrink-0 text-right text-[10px] text-ink-faint">招聘</span>
+        <span className="w-10 shrink-0 text-right text-[10px] text-ink-faint">留存</span>
       </div>
     </div>
   )
@@ -309,15 +316,15 @@ export function RetentionChart({
 
 export function TrendChart({
   points,
-  height = 180,
+  height = 200,
 }: {
   points: Array<{ year: number; avgSalary: number }>
   height?: number
 }) {
   if (points.length < 2) return null
-  const W = 720
-  const padTop = 18
-  const padBottom = 28
+  const W = 760
+  const padTop = 22
+  const padBottom = 30
   const innerH = height - padTop - padBottom
   const min = Math.min(...points.map((p) => p.avgSalary))
   const max = Math.max(...points.map((p) => p.avgSalary))
@@ -329,15 +336,22 @@ export function TrendChart({
     ...point,
   }))
 
-  const line = coords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ')
+  const line = coords
+    .map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)},${c.y.toFixed(1)}`)
+    .join(' ')
   const area = `${line} L ${W},${padTop + innerH} L 0,${padTop + innerH} Z`
 
   return (
-    <svg viewBox={`0 0 ${W} ${height}`} className="w-full" role="img" aria-label="历年平均薪资">
+    <svg
+      viewBox={`0 0 ${W} ${height}`}
+      className="w-full"
+      role="img"
+      aria-label="历年平均薪资"
+    >
       <defs>
         <linearGradient id="trend-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#0f766e" stopOpacity="0.16" />
-          <stop offset="100%" stopColor="#0f766e" stopOpacity="0" />
+          <stop offset="0%" stopColor="var(--color-teal)" stopOpacity="0.18" />
+          <stop offset="100%" stopColor="var(--color-teal)" stopOpacity="0" />
         </linearGradient>
       </defs>
 
@@ -350,34 +364,49 @@ export function TrendChart({
           y2={padTop + innerH * tick}
           stroke="currentColor"
           className="text-rule"
-          strokeDasharray="2 4"
+          strokeDasharray="2 5"
         />
       ))}
 
       <path d={area} fill="url(#trend-fill)" />
-      <path d={line} fill="none" stroke="#0f766e" strokeWidth={1.6} strokeLinejoin="round" />
+      <path
+        d={line}
+        fill="none"
+        stroke="var(--color-teal)"
+        strokeWidth={1.8}
+        strokeLinejoin="round"
+      />
 
-      {coords.map((c, index) =>
-        index % Math.ceil(coords.length / 8) === 0 || index === coords.length - 1 ? (
+      {coords.map((c, index) => {
+        const step = Math.ceil(coords.length / 8)
+        if (index % step !== 0 && index !== coords.length - 1) return null
+        return (
           <g key={c.year}>
-            <circle cx={c.x} cy={c.y} r={2.4} fill="#faf9f7" stroke="#0f766e" strokeWidth={1.4} />
+            <circle
+              cx={c.x}
+              cy={c.y}
+              r={2.6}
+              fill="var(--color-paper-raised)"
+              stroke="var(--color-teal)"
+              strokeWidth={1.5}
+            />
             <text
               x={c.x}
-              y={height - 8}
+              y={height - 9}
               textAnchor={index === coords.length - 1 ? 'end' : index === 0 ? 'start' : 'middle'}
               className="fill-ink-faint font-mono"
-              fontSize={9.5}
+              fontSize={10}
             >
               {c.year}
             </text>
           </g>
-        ) : null,
-      )}
+        )
+      })}
 
-      <text x={0} y={padTop - 5} className="fill-ink-faint font-mono" fontSize={9.5}>
+      <text x={0} y={padTop - 7} className="fill-ink-faint font-mono" fontSize={10}>
         {fmtMoneyShort(max)}
       </text>
-      <text x={0} y={padTop + innerH - 3} className="fill-ink-faint font-mono" fontSize={9.5}>
+      <text x={0} y={padTop + innerH - 4} className="fill-ink-faint font-mono" fontSize={10}>
         {fmtMoneyShort(min)}
       </text>
     </svg>
@@ -385,7 +414,7 @@ export function TrendChart({
 }
 
 /* ------------------------------------------------------------------ */
-/* 区间条：部门/职衔的薪酬跨度（P25–P75 感）                             */
+/* 区间条：薪酬跨度（最低–最高，竖线为中位数）                            */
 /* ------------------------------------------------------------------ */
 
 export function RangeBar({
@@ -394,12 +423,14 @@ export function RangeBar({
   median,
   domainMin,
   domainMax,
+  tone = 'ink',
 }: {
   min: number
   max: number
   median: number
   domainMin: number
   domainMax: number
+  tone?: 'ink' | 'accent'
 }) {
   const span = domainMax - domainMin || 1
   const pos = (value: number) => ((value - domainMin) / span) * 100
@@ -408,14 +439,43 @@ export function RangeBar({
   const mid = Math.min(Math.max(pos(median), 0), 100)
 
   return (
-    <div className="relative h-[6px] w-full rounded-full bg-ink/[0.07]">
+    <div className="relative h-[7px] w-full rounded-full bg-ink/[0.06]">
       <div
-        className="absolute inset-y-0 rounded-full bg-ink/20"
+        className={`absolute inset-y-0 rounded-full ${tone === 'accent' ? 'bg-accent/30' : 'bg-ink/22'}`}
         style={{ left: `${left}%`, width: `${Math.max(right - left, 1)}%` }}
       />
       <div
-        className="absolute top-1/2 h-[10px] w-[2px] -translate-y-1/2 rounded-full bg-accent"
+        className={`absolute top-1/2 h-[11px] w-[2px] -translate-y-1/2 rounded-full ${
+          tone === 'accent' ? 'bg-accent' : 'bg-ink'
+        }`}
         style={{ left: `${mid}%` }}
+      />
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* 占比条：用于人数占比 / 性别构成                                       */
+/* ------------------------------------------------------------------ */
+
+export function ShareBar({
+  value,
+  color = 'var(--color-ink)',
+  height = 6,
+}: {
+  value: number
+  color?: string
+  height?: number
+}) {
+  return (
+    <div
+      className="w-full overflow-hidden rounded-full bg-ink/[0.07]"
+      style={{ height }}
+      role="presentation"
+    >
+      <div
+        className="h-full rounded-full"
+        style={{ width: `${Math.min(Math.max(value, 0), 1) * 100}%`, background: color }}
       />
     </div>
   )
