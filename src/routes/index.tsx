@@ -265,7 +265,7 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
         <>
           女性 {fmtInt(gender.female.headcount)} 人，平均 {fmtMoney(gender.female.avgSalary)}；
           男性 {fmtInt(gender.male.headcount)} 人，平均 {fmtMoney(gender.male.avgSalary)}。
-          拆到职衔内部也一样——差距最大的一项只有 {fmtPercent(worstGap, 1)}。
+          拆到职衔内部也一样，差距最大的一项只有 {fmtPercent(worstGap, 1)}。
         </>
       }
     >
@@ -281,7 +281,7 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
         </thead>
         <tbody>
           {titles.map((row) => (
-            <tr key={row.title} className="border-b border-rule/70">
+            <tr key={row.title} className="border-b border-rule/70 last:border-0">
               <td className="py-2.5 pr-4 text-[15px]">{row.title}</td>
               <td className="py-2.5 pr-4 text-right text-[13.5px] tabular text-ink-soft">
                 {fmtInt(row.headcount)}
@@ -353,10 +353,7 @@ function TopEarners({ dashboard }: { dashboard: Dashboard }) {
     >
       <ol className="grid grid-cols-1 gap-x-10 sm:grid-cols-2">
         {topEarners.map((person, index) => (
-          <li
-            key={person.id}
-            className="flex items-baseline gap-3 border-b border-rule/70 py-2 last:border-0 sm:[&:nth-last-child(-n+2)]:border-0"
-          >
+          <li key={person.id} className="flex items-baseline gap-3 border-b border-rule/70 py-2">
             <span className="w-5 shrink-0 font-sans text-[11px] tabular text-ink-faint">
               {String(index + 1).padStart(2, '0')}
             </span>
