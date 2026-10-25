@@ -151,23 +151,16 @@ function Distribution({ dashboard }: { dashboard: Dashboard }) {
     (best, bucket) => (bucket.count > best.count ? bucket : best),
     distribution.buckets[0] ?? { from: 0, to: 0, count: 0 },
   )
-  const halfWidth = (totals.p75Salary - totals.p25Salary) / 2
-  const midpoint = (totals.p75Salary + totals.p25Salary) / 2
-  const middleShare =
-    distribution.buckets
-      .filter((bucket) => bucket.from >= totals.p25Salary - halfWidth && bucket.from < midpoint + halfWidth)
-      .reduce((sum, bucket) => sum + bucket.count, 0) / Math.max(totals.activeEmployees, 1)
 
   return (
     <Section
       title={`大多数人的年薪在 ${fmtMoneyShort(peak.from)}–${fmtMoneyShort(peak.to)}`}
       lede={
         <>
-          把 {fmtInt(totals.activeEmployees)} 名在职员工的当前年薪按 $5K 一档切开。人数最多的一档
-          是 {fmtMoneyShort(peak.from)}–{fmtMoneyShort(peak.to)}，约 {fmtPercent(middleShare, 0)}{' '}
-          的人落在 {fmtMoney(totals.p25Salary)} 到 {fmtMoney(totals.p75Salary)} 之间。
-          均值 {fmtMoney(distribution.mean)} 高于中位数 {fmtMoney(distribution.median)}，
-          差距来自右端那条长尾。
+          {fmtInt(totals.activeEmployees)} 名在职员工的当前年薪，按 $5K 一档切开后向右拖出一条长尾。
+          一半人的年薪在 {fmtMoney(totals.p25Salary)} 到 {fmtMoney(totals.p75Salary)} 之间，
+          均值 {fmtMoney(distribution.mean)} 却高于中位数 {fmtMoney(distribution.median)}{' '}
+          —— 差距全在那条尾巴上。
         </>
       }
     >
@@ -177,8 +170,7 @@ function Distribution({ dashboard }: { dashboard: Dashboard }) {
         mean={distribution.mean}
       />
       <Caption>
-        朱红实线为中位数 {fmtMoney(distribution.median)}，灰色虚线为均值{' '}
-        {fmtMoney(distribution.mean)}。
+        实线中位数 {fmtMoney(distribution.median)} · 虚线均值 {fmtMoney(distribution.mean)}
       </Caption>
     </Section>
   )
@@ -204,15 +196,14 @@ function Departments({ dashboard }: { dashboard: Dashboard }) {
         <>
           {biggest?.name} 是最大的部门，{fmtInt(biggest?.headcount ?? 0)} 人，平均薪酬只排第{' '}
           {biggestRank || '—'}；{highest?.name} 给得最多（平均 {fmtMoney(highest?.avgSalary ?? 0)}），
-          人数却排第 {highestRank || '—'}。九个部门的平均年薪相差{' '}
+          人数却排第 {highestRank || '—'}。高低之间相差{' '}
           {fmtMoney((highest?.avgSalary ?? 0) - (bySalary[bySalary.length - 1]?.avgSalary ?? 0))}。
         </>
       }
     >
       <DepartmentBars departments={departments} average={totals.avgSalary} />
       <Caption>
-        以全员平均 {fmtMoney(totals.avgSalary)} 为中轴，向右为高于平均、向左为低于平均；
-        条形长度按与平均值的差距比例。
+        以全员平均 {fmtMoney(totals.avgSalary)} 为中轴，右为高于平均、左为低于平均
       </Caption>
     </Section>
   )
@@ -298,15 +289,16 @@ function Hiring({ dashboard }: { dashboard: Dashboard }) {
       lede={
         <>
           {peak?.year} 年前后是招聘高峰，一年入职 {fmtInt(peak?.hired ?? 0)} 人；
-          {last?.year} 年只招了 {fmtInt(last?.hired ?? 0)} 人。但进来的人留得住：各年入职者
-          到 {fmtYearMonth(dashboard.asOf)} 的平均留存率一直在六成上下，最早那一批仍有{' '}
-          {fmtPercent((first?.active ?? 0) / Math.max(first?.hired ?? 1, 1), 0)} 在职。
+          {last?.year} 年只招了 {fmtInt(last?.hired ?? 0)} 人。但进来的人留得住：最早那一批仍有{' '}
+          {fmtPercent((first?.active ?? 0) / Math.max(first?.hired ?? 1, 1), 0)} 在职，
           在职员工的平均司龄因此达到 {totals.avgTenureYears} 年。
         </>
       }
     >
       <RetentionChart data={retention} />
-      <Caption>每年入职人数按最长的一年等比缩放；深色部分是到 {fmtYearMonth(dashboard.asOf)} 仍在职的人，右侧为留存率。</Caption>
+      <Caption>
+        每行一年，深色为到 {fmtYearMonth(dashboard.asOf)} 仍在职的人，右侧数字为留存率
+      </Caption>
     </Section>
   )
 }
@@ -393,8 +385,7 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
         </tbody>
       </table>
       <Caption>
-        竖线为该职衔的中位数；女性一列为该职衔内女性的占比。整体女性占{' '}
-        {fmtPercent(femaleShare, 0)}。
+        竖线为中位数；女性一列为该职衔内女性占比，整体女性占 {fmtPercent(femaleShare, 0)}
       </Caption>
     </Section>
   )
