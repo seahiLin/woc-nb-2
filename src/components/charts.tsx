@@ -454,29 +454,4 @@ export function RangeBar({
   )
 }
 
-/* ------------------------------------------------------------------ */
-/* 占比条：用于人数占比 / 性别构成                                       */
-/* ------------------------------------------------------------------ */
 
-export function ShareBar({
-  value,
-  color = 'var(--color-ink)',
-  height = 6,
-}: {
-  value: number
-  color?: string
-  height?: number
-}) {
-  return (
-    <div
-      className="w-full overflow-hidden rounded-full bg-ink/[0.07]"
-      style={{ height }}
-      role="presentation"
-    >
-      <div
-        className="h-full rounded-full"
-        style={{ width: `${Math.min(Math.max(value, 0), 1) * 100}%`, background: color }}
-      />
-    </div>
-  )
-}

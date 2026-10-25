@@ -7,11 +7,11 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: '员工数据报告 · People Analytics' },
+      { title: '员工与薪酬 · 数据报告' },
       {
         name: 'description',
         content:
-          'Neon Postgres employees 数据集的分析报告：规模、薪酬分布、招聘留存、部门与职衔结构。',
+          '一份关于员工规模、薪酬分布、招聘留存与部门结构的分析报告。',
       },
       { name: 'color-scheme', content: 'light' },
     ],
