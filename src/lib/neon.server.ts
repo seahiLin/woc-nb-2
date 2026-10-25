@@ -17,16 +17,14 @@ import type { NeonDatabase, NeonQueryResultHKT } from 'drizzle-orm/neon-serverle
 import type { PgDatabase } from 'drizzle-orm/pg-core'
 import * as schema from '../db/schema'
 
-export type Schema = typeof schema
-
 /** 带完整 schema 的 Drizzle 实例（表、枚举、序列、关系都在里面）。 */
-export type Db = NeonDatabase<Schema>
+export type Db = NeonDatabase<typeof schema>
 
 /**
  * “能跑查询的东西”：`Db` 和事务里的 `tx` 都满足（两者都继承自 `PgDatabase`）。
  * 查询函数都收这个类型，才能在 `db.transaction(...)` 内外复用。
  */
-export type Queryable = PgDatabase<NeonQueryResultHKT, Schema>
+export type Queryable = PgDatabase<NeonQueryResultHKT, typeof schema>
 
 export class NeonError extends Error {
   code?: string
