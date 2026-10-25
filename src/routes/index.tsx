@@ -182,18 +182,17 @@ function Departments({ dashboard }: { dashboard: Dashboard }) {
 
   return (
     <Section
-      title={<>人最多的 {biggest?.name}，薪酬排第 {biggestRank}</>}
+      title={
+        <>
+          {highest?.name} 平均 {fmtMoneyShort(highest?.avgSalary ?? 0)}，
+          比 {lowest?.name} 高 {fmtMoneyShort((highest?.avgSalary ?? 0) - (lowest?.avgSalary ?? 0))}
+        </>
+      }
       lede={
         <>
-          {biggest?.name} 有 {fmtInt(biggest?.headcount ?? 0)} 人，是最大的部门，平均薪酬却只排第{' '}
-          {biggestRank}；{highest?.name} 给得最多，平均 {fmtMoney(highest?.avgSalary ?? 0)}，
-          比 {lowest?.name} 高出{' '}
-          {fmtPercent(
-            ((highest?.avgSalary ?? 0) - (lowest?.avgSalary ?? 0)) /
-              Math.max(lowest?.avgSalary ?? 1, 1),
-            0,
-          )}
-          。部门之间的差别，比同部门内部的差别小得多。
+          {biggest?.name} 人最多，有 {fmtInt(biggest?.headcount ?? 0)} 人，平均薪酬却只排第{' '}
+          {biggestRank}；给得最多的 {highest?.name} 平均 {fmtMoney(highest?.avgSalary ?? 0)}，
+          人数只排第 {bySalary.length - bySalary.findIndex((d) => d.id === highest?.id)}。
         </>
       }
     >
