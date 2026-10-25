@@ -391,18 +391,33 @@ function TopEarners({ dashboard }: { dashboard: Dashboard }) {
   const last = topEarners[topEarners.length - 1]
   const spread =
     first && last && first.salary > 0 ? (first.salary - last.salary) / first.salary : 0
+  const overMedian =
+    dashboard.totals.medianSalary > 0
+      ? (first?.salary ?? 0) / dashboard.totals.medianSalary - 1
+      : 0
+
+  // 十人往往同职衔同部门，那就只在导语里说一次，不必每行重复。
+  const sameTitle = topEarners.every((p) => p.title === first?.title)
+  const sameDept = topEarners.every((p) => p.department === first?.department)
 
   return (
     <Section
-      title="薪酬最高的十人"
+      title={
+        sameTitle && sameDept
+          ? `最贵的十人，全是 ${first?.title}`
+          : '薪酬最高的十人'
+      }
       lede={
         first ? (
           <>
-            第 1 名 {first.name} 年薪 {fmtMoney(first.salary)}，比第 10 名多{' '}
-            {fmtPercent(spread, 0)}。十人里{' '}
-            {topEarners.filter((p) => p.title === first.title).length} 人是 {first.title}，
-            {topEarners.filter((p) => p.department === first.department).length} 人来自{' '}
-            {first.department}。
+            {sameTitle && sameDept ? (
+              <>
+                十人都在 {first.department}，职衔都是 {first.title}。
+              </>
+            ) : null}
+            第 1 名 {first.name} 年薪 {fmtMoney(first.salary)}，第 10 名{' '}
+            {fmtMoney(last?.salary ?? 0)} —— 前十里相差 {fmtPercent(spread, 0)}，
+            但第 1 名已经比中位数高出 {fmtPercent(overMedian, 0)}。
           </>
         ) : (
           '暂无数据。'
@@ -418,12 +433,7 @@ function TopEarners({ dashboard }: { dashboard: Dashboard }) {
             <span className="w-4 shrink-0 font-mono text-[11px] tabular text-ink-faint">
               {String(index + 1).padStart(2, '0')}
             </span>
-            <span className="min-w-0 flex-1 truncate text-[13px] text-ink">
-              {person.name}
-              <span className="ml-2 text-[11.5px] text-ink-faint">
-                {person.title ?? '—'} · {person.department ?? '—'}
-              </span>
-            </span>
+            <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{person.name}</span>
             <span className="shrink-0 font-mono text-[12.5px] tabular text-ink">
               {fmtMoney(person.salary)}
             </span>
