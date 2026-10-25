@@ -112,19 +112,15 @@ function Opening({ dashboard }: { dashboard: Dashboard }) {
     (best, d) => (d.avgSalary > best.avgSalary ? d : best),
     departments[0],
   )
-  const peak = distribution.buckets.reduce(
-    (best, bucket) => (bucket.count > best.count ? bucket : best),
-    distribution.buckets[0] ?? { from: 0, to: 0, count: 0 },
-  )
 
   return (
     <div className="pt-12 sm:pt-16">
-      <h1 className="max-w-[22ch] text-[27px] leading-[1.34] font-medium tracking-[-0.01em] text-balance sm:text-[33px]">
+      <h1 className="max-w-[14em] text-[27px] leading-[1.34] font-medium tracking-[-0.01em] text-balance sm:text-[33px]">
         {fmtInt(totals.activeEmployees)} 名在职员工的年薪，
         一半挤在 {fmtMoneyShort(totals.p25Salary)} 到 {fmtMoneyShort(totals.p75Salary)} 之间
       </h1>
 
-      <p className="mt-4 max-w-[54ch] text-[15.5px] leading-[1.85] text-ink-soft">
+      <p className="mt-4 max-w-[52ch] text-[15.5px] leading-[1.85] text-ink-soft">
         中位 {fmtMoney(totals.medianSalary)}，均值 {fmtMoney(totals.avgSalary)}——
         右边那条长尾把均值抬了起来。给得最多的是 {highest?.name}，平均{' '}
         {fmtMoney(highest?.avgSalary ?? 0)}。
@@ -140,9 +136,6 @@ function Opening({ dashboard }: { dashboard: Dashboard }) {
         <figcaption className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1 font-sans text-[11.5px] text-ink-faint">
           <span>深色为中间半数</span>
           <span>红线为中位数</span>
-          <span>
-            人数最多的一档是 {fmtMoneyShort(peak.from)}–{fmtMoneyShort(peak.to)}
-          </span>
         </figcaption>
       </figure>
 
@@ -189,12 +182,7 @@ function Departments({ dashboard }: { dashboard: Dashboard }) {
 
   return (
     <Section
-      label="部门"
-      title={
-        <>
-          人最多的 {biggest?.name}，薪酬排第 {biggestRank}
-        </>
-      }
+      title={<>人最多的 {biggest?.name}，薪酬排第 {biggestRank}</>}
       lede={
         <>
           {biggest?.name} 有 {fmtInt(biggest?.headcount ?? 0)} 人，是最大的部门，平均薪酬却只排第{' '}
@@ -229,12 +217,7 @@ function Hiring({ dashboard }: { dashboard: Dashboard }) {
 
   return (
     <Section
-      label="招聘"
-      title={
-        <>
-          {last?.year} 年只招了 {fmtInt(last?.hired ?? 0)} 人
-        </>
-      }
+      title={<>{last?.year} 年只招了 {fmtInt(last?.hired ?? 0)} 人</>}
       lede={
         <>
           从 {peak?.year} 年的 {fmtInt(peak?.hired ?? 0)} 人一路降到 {last?.year} 年的{' '}
@@ -278,7 +261,6 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
 
   return (
     <Section
-      label="职衔"
       title={<>男女平均年薪差 {fmtPercent(Math.abs(overallGap), 1)}</>}
       lede={
         <>
@@ -349,7 +331,6 @@ function TopEarners({ dashboard }: { dashboard: Dashboard }) {
 
   return (
     <Section
-      label="最高薪"
       title={
         uniform ? (
           <>最贵的十个人，全是 {first?.title}</>
@@ -430,11 +411,7 @@ function Lookup() {
   }, [term, fetchEmployees])
 
   return (
-    <Section
-      label="查阅"
-      title={<>查一个人</>}
-      lede="按工号精确查，或按姓、名的片段模糊查。"
-    >
+    <Section title={<>查一个人</>} lede="按工号精确查，或按姓、名的片段模糊查。">
       <div className="relative max-w-[360px]">
         <input
           ref={inputRef}

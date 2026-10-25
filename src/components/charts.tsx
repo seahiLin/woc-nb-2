@@ -61,34 +61,27 @@ export const fmtDate = (value: string): string => {
 /* ------------------------------------------------------------------ */
 
 /**
- * 一节 = 左边栏标出这是什么 + 右边一条结论。左栏是登记册的栏目，
- * 不是装饰：它让整页有了固定的阅读轴，扫视时先看左栏定位。
+ * 一节 = 一条结论 + 一句话 + 一块图。
+ * 不加栏目名、不加编号：标题本身就是结论，再加一层小标签只是在重复。
  */
 export function Section({
-  label,
   title,
   lede,
   children,
 }: {
-  label: string
   title: ReactNode
   lede?: ReactNode
   children: ReactNode
 }) {
   return (
-    <section className="grid grid-cols-1 gap-y-6 border-t border-rule pt-10 sm:grid-cols-[8.5rem_1fr] sm:gap-x-10 sm:pt-12">
-      <p className="font-sans text-[11px] leading-[2.4] tracking-[0.06em] text-ink-faint sm:sticky sm:top-10 sm:self-start">
-        {label}
-      </p>
-      <div className="min-w-0">
-        <h2 className="max-w-[24ch] text-[25px] leading-[1.32] font-medium tracking-[-0.01em] text-balance sm:text-[29px]">
-          {title}
-        </h2>
-        {lede ? (
-          <p className="mt-4 max-w-[58ch] text-[15.5px] leading-[1.85] text-ink-soft">{lede}</p>
-        ) : null}
-        <div className="mt-9">{children}</div>
-      </div>
+    <section className="mt-14 border-t border-rule pt-10 sm:mt-16 sm:pt-12">
+      <h2 className="max-w-[15em] text-[24px] leading-[1.36] font-medium tracking-[-0.01em] text-balance sm:text-[27px]">
+        {title}
+      </h2>
+      {lede ? (
+        <p className="mt-4 max-w-[58ch] text-[15.5px] leading-[1.85] text-ink-soft">{lede}</p>
+      ) : null}
+      <div className="mt-9">{children}</div>
     </section>
   )
 }
@@ -149,7 +142,7 @@ export function DistributionChart({
 
       {buckets.map((bucket, index) => {
         const h = (bucket.count / max) * innerH
-        const inMiddle = bucket.from >= p25 && bucket.from < p75
+        const inMiddle = bucket.to > p25 && bucket.from < p75
         return (
           <rect
             key={bucket.from}
