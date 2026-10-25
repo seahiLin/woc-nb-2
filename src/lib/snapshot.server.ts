@@ -16,8 +16,9 @@ const SNAPSHOT_ID = 1
 function snapshotDb() {
   const binding = d1Binding()
   if (!binding) return null
-  // 只声明用到的那一点 D1 API（wrangler 的类型包不在依赖里）。
-  return drizzle(binding as Parameters<typeof drizzle>[0])
+  // `as never` 是因为 D1 的绑定类型来自 @cloudflare/workers-types，
+  // 这个仓库没装那个包；运行时它就是 D1Database。
+  return drizzle(binding as never)
 }
 
 export async function readSnapshot(): Promise<Dashboard | null> {

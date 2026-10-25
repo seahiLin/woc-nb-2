@@ -97,10 +97,15 @@ const fullName = sql<string>`${employee.firstName} || ' ' || ${employee.lastName
 /* 各切片                                                              */
 /* ------------------------------------------------------------------ */
 
-/** 数据集的时间基准：薪资历史里最后一个真实结束日的次日。 */
-const asOfExpression = sql<string>`(
-  select (max(${salary.toDate}) + 1)::text from ${salary} where ${ne(salary.toDate, CURRENT)}
+/**
+ * 数据集的时间基准：薪资历史里最后一个真实结束日的次日。
+ * 用两个形式：`as_of_date` 用于算司龄（date 算术），`as_of_text` 用于展示。
+ */
+const asOfDate = sql`(
+  select (max(${salary.toDate}) + 1)::date from ${salary} where ${ne(salary.toDate, CURRENT)}
 )`
+
+const asOfText = sql<string>`(${asOfDate})::text`
 
 /** 执行一段原始 SQL 并拿到行。neon-serverless 返回 QueryResult，这里兼容两种形态。 */
 async function rawRows<T>(db: Queryable, query: SQL): Promise<T[]> {
@@ -157,10 +162,10 @@ async function loadTotals(db: Queryable) {
         (select max(${curSalary.amount}) from ${curSalary})::int as max_salary,
         (select min(${employee.hireDate})::text from ${employee}) as first_hire,
         (select max(${employee.hireDate})::text from ${employee}) as last_hire,
-        (select round(avg((${asOfExpression} - ${employee.hireDate}) / 365.25))
+        (select round(avg((${asOfDate} - ${employee.hireDate}) / 365.25))
            from ${employee}
            join ${curDept} on ${curDept.employeeId} = ${employee.id})::int as avg_tenure_years,
-        ${asOfExpression} as as_of,
+        ${asOfText} as as_of,
         current_database() as database_name
     `,
   )
