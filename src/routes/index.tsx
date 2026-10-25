@@ -114,7 +114,7 @@ function TopBar({
             员工与薪酬
           </span>
           <span className="hidden text-[12px] text-ink-faint sm:inline">
-            / {dashboard ? `${fmtYearMonth(dashboard.asOf)} 快照` : '加载中'}
+            {dashboard ? `数据截至 ${fmtYearMonth(dashboard.asOf)}` : ''}
           </span>
         </div>
         <button
@@ -933,22 +933,25 @@ function Th({
 function Unavailable({ error, onRetry }: { error: string | null; onRetry: () => void }) {
   return (
     <div className="mt-20 rounded-sm border border-rule bg-paper-raised p-8 sm:p-10">
-      <p className="font-mono text-[10px] tracking-[0.2em] text-danger uppercase">暂时读不到数据</p>
+      <p className="font-mono text-[10px] tracking-[0.2em] text-danger uppercase">数据暂不可用</p>
       <h1 className="mt-3 text-[24px] font-semibold tracking-tight text-ink">
-        数据连接中断了
+        没能加载到员工数据
       </h1>
-      <p className="mt-3 max-w-xl text-[13px] leading-relaxed text-ink-soft">
-        {error ?? '未知错误'}
+      <p className="mt-2 max-w-xl text-[12.5px] leading-relaxed text-ink-soft">
+        这通常是暂时的。重试一次；如果仍然不行，稍后再来。
       </p>
-      <p className="mt-2 max-w-xl text-[12.5px] leading-relaxed text-ink-faint">
-        恢复连接后这里会自动显示最新数据；在此之前会尽量使用最近一次的数据。
-      </p>
+      <details className="mt-4 max-w-xl">
+        <summary className="cursor-pointer text-[11.5px] text-ink-faint">技术细节</summary>
+        <p className="mt-2 font-mono text-[11px] leading-relaxed break-words text-ink-faint">
+          {error ?? '未知错误'}
+        </p>
+      </details>
       <button
         type="button"
         onClick={onRetry}
         className="mt-6 rounded-full bg-ink px-5 py-2.5 text-[12.5px] font-medium text-paper transition hover:bg-ink/85"
       >
-        重新连接
+        重试
       </button>
     </div>
   )
