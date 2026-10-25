@@ -25,10 +25,13 @@ TanStack Start 应用，跑在 Cloudflare Workers 上。页面是一份关于 Ne
 ## 目录
 
 ```
-migrations/
-  0001_create_employees.sql              # employees schema 在 D1 上的等价结构
-  0002_employees_dashboard_snapshot.sql  # 看板快照表
-  0003_align_employees_indexes.sql       # 去掉 0001 里凭空多出的索引，对齐 Neon
+neon/migrations/
+  0001_employees_schema.sql              # Neon 上 employees schema 的权威结构
+migrations/                             # D1（SQLite）侧的迁移，wrangler 默认目录
+  0001–0003                              # 早期的 employees 结构镜像（已废弃，留着凑历史）
+  0004_snapshot_only.sql                 # 只留看板快照表，删掉那六张影子表
+scripts/
+  migrate-neon.mjs                       # Neon 迁移执行器（部署前跑）
 src/lib/
   neon.server.ts              # Neon 驱动封装（Pool/Client，每个请求用完即关）
   employees.queries.server.ts # 报告用到的全部 SQL（一次只读事务）
@@ -50,34 +53,45 @@ src/routes/index.tsx          # 报告页面
 - 图表不引第三方库，全是手写 SVG：数据量小、形状固定，手写更可控也不给客户端加体积。
 - 数字统一 `font-variant-numeric: tabular-nums`，表格和 KPI 才能对齐。
 
-## 迁移与 Neon 的对应关系
+## 迁移
 
-`0001_create_employees.sql` 用 SQLite 语法重建了 Neon 上的结构：
+两个库，两套迁移，各归各位：
 
-| Neon (Postgres)                | D1 (SQLite)                        |
-| ------------------------------ | ---------------------------------- |
-| `bigint`                       | `INTEGER`                          |
-| `varchar(n)`                   | `TEXT` + `CHECK (length(...) <= n)` |
-| `char(4)`                      | `TEXT` + `CHECK`                   |
-| `date`                         | `DATE`                             |
-| `employees.employee_gender`    | `TEXT CHECK (gender IN ('M','F'))` |
-| `nextval('employees.id_employee_seq')` | `INTEGER PRIMARY KEY`（自增语义） |
+| 库 | 目录 | 谁跑 | 内容 |
+| --- | --- | --- | --- |
+| **Neon**（Postgres） | `neon/migrations/*.sql` | `scripts/migrate-neon.mjs`，部署前 | `employees` schema 的权威结构 |
+| **D1**（SQLite） | `migrations/*.sql` | `wrangler d1 migrations apply` | 只有看板快照表 |
 
-D1 的 `PRAGMA foreign_keys` 默认关闭，外键声明仅作结构留档；页面的数据不读 D1 的这六张表。
+`npm run release` / `release:preview` 会先跑 Neon 迁移，再跑 D1 迁移，所以两个库
+都在 Worker 上线之前就绪。
 
-索引也按 Neon 的实际情况对齐，不多不少 9 个：
+### Neon 侧
 
-| 表 | 索引 | 类型 |
-| --- | --- | --- |
-| `employee` | `(id)` | PK |
-| `department` | `(id)` · `(dept_name)` | PK · UNIQUE |
-| `department_employee` | `(employee_id, department_id)` · `(department_id)` | PK · INDEX |
-| `department_manager` | `(employee_id, department_id)` · `(department_id)` | PK · INDEX |
-| `salary` | `(employee_id, from_date)` | PK |
-| `title` | `(employee_id, title, from_date)` | PK |
+`neon/migrations/0001_employees_schema.sql` 是**权威定义**，逐项对齐原数据集导入后的
+实际结构：列类型与长度（`bigint` / `varchar(14)` / `char(4)` / `date`）、
+`employees.employee_gender` 枚举、`employees.id_employee_seq` 序列、主键与外键名
+（`idx_16988_primary` / `dept_emp_ibfk_1` …）、以及那 9 个索引。全部写成幂等语句，
+所以对已有数据的库跑一遍是 no-op，只会在 `public.schema_migrations` 里记一行。
 
-Neon 里这些索引的物理名是 `idx_16979_primary` / `idx_16982_dept_no` 这类
-（原始数据集导入时生成的），D1 侧用了可读名，列组合与唯一性一致。
+执行器用 `@neondatabase/serverless` 的 `Pool`（WebSocket，node-postgres API）：一个
+文件里可能有多条语句和 `do $$ … $$` 块，只有简单查询协议能整段发出去并整体落在
+同一个事务里。事务里先拿 `pg_advisory_xact_lock`，两个部署同时跑迁移时不会互相踩。
+
+只在 **main** 上真正应用：分支 Preview 用同一套 Neon 连接串，如果它们也跑迁移，
+一次 push 就会改到生产库的 schema。所以非 main 只做 dry-run（把待应用的迁移打到
+日志里）。要单独对某个 Neon 分支库应用，设 `NEON_MIGRATE=apply`。
+
+连不上 Neon 只警告不阻断部署（页面会退到 D1 快照）；连上了但迁移报错则回滚并让
+部署失败。
+
+### D1 侧
+
+只存一份看板聚合结果的 JSON 快照。`0004_snapshot_only.sql` 确保这张表存在，
+并删掉了早期 `0001` 用 SQLite 语法重建的那六张 `employees` 影子表 —— 它们从来没被
+页面读过，留在 D1 里只会让人以为数据在那边。
+
+`0001`–`0003` 留在仓库里只是为了迁就已部署库的 `d1_migrations` 历史：`wrangler` 只
+按文件名对比，所以它们不会重跑，新库也能从头跑出同样的结果。
 
 ## 本地开发
 
@@ -87,3 +101,10 @@ npm run dev
 ```
 
 需要在 `.dev.vars` 里提供 `CONNECTION_STRING`（不要提交这个文件）。
+
+要在本地把 Neon 迁移应用到 `.dev.vars` 里那个库（不设 `GITHUB_REF`，脚本默认直接
+应用；想只看会跑什么就加 `NEON_MIGRATE=check`）：
+
+```bash
+npm run migrate:neon
+```

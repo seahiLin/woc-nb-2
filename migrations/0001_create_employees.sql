@@ -1,5 +1,10 @@
 -- employees —— 员工数据集（源自 Neon 库 `neondb` 的 `employees` schema）。
 --
+-- ⚠️ 已废弃：`employees` 的权威定义在 `neon/migrations/0001_employees_schema.sql`
+-- （Postgres 语法，由 `scripts/migrate-neon.mjs` 在部署前应用）。这里只是当年用
+-- SQLite 语法做的一份结构镜像，页面从来不读它；`0004_snapshot_only.sql` 会删掉
+-- 这几张表。文件留着是为了迁就已部署 D1 库的迁移历史，不要再往这里加东西。
+--
 -- 结构说明：
 --   * employee            员工主表
 --   * department          部门（9 个）

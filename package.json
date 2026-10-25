@@ -8,8 +8,9 @@
     "preview": "vite build && vite preview",
     "deploy": "vite build && wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "release": "wrangler d1 migrations apply DB --remote",
-    "release:preview": "wrangler d1 migrations apply DB --remote --preview"
+    "migrate:neon": "node scripts/migrate-neon.mjs",
+    "release": "node scripts/migrate-neon.mjs && wrangler d1 migrations apply DB --remote",
+    "release:preview": "node scripts/migrate-neon.mjs && wrangler d1 migrations apply DB --remote --preview"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.0",
