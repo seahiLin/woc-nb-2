@@ -99,13 +99,11 @@ const fullName = sql<string>`${employee.firstName} || ' ' || ${employee.lastName
 
 /**
  * 数据集的时间基准：薪资历史里最后一个真实结束日的次日。
- * 用两个形式：`as_of_date` 用于算司龄（date 算术），`as_of_text` 用于展示。
+ * 用作 date，因为司龄要用它做日期算术。
  */
 const asOfDate = sql`(
   select (max(${salary.toDate}) + 1)::date from ${salary} where ${ne(salary.toDate, CURRENT)}
 )`
-
-const asOfText = sql<string>`(${asOfDate})::text`
 
 /** 执行一段原始 SQL 并拿到行。neon-serverless 返回 QueryResult，这里兼容两种形态。 */
 async function rawRows<T>(db: Queryable, query: SQL): Promise<T[]> {
@@ -137,35 +135,41 @@ type TotalsRow = {
 }
 
 async function loadTotals(db: Queryable) {
-  const curSalary = currentSalary(db)
-  const curDept = currentAssignment(db)
-
   const result = await rawRows<TotalsRow>(
     db,
     sql`
+      with cur_salary as (
+        select ${salary.amount} as amount from ${salary} where ${eq(salary.toDate, CURRENT)}
+      ),
+      cur_dept as (
+        select ${departmentEmployee.employeeId} as employee_id
+        from ${departmentEmployee}
+        where ${eq(departmentEmployee.toDate, CURRENT)}
+      ),
+      as_of as (${asOfDate})
       select
         (select count(*) from ${employee})::int as employees,
-        (select count(*) from ${curDept})::int as active_employees,
+        (select count(*) from cur_dept)::int as active_employees,
         (select count(*) from ${department})::int as departments,
         (select count(*) from ${salary})::int as salary_records,
         (select count(*) from ${title})::int as title_records,
         (select count(*) from ${departmentEmployee})::int as assignment_records,
         (select count(*) from ${departmentManager})::int as manager_records,
-        (select round(avg(${curSalary.amount})) from ${curSalary})::int as avg_salary,
-        (select round(percentile_cont(0.5) within group (order by ${curSalary.amount}))
-          from ${curSalary})::int as median_salary,
-        (select round(percentile_cont(0.25) within group (order by ${curSalary.amount}))
-          from ${curSalary})::int as p25_salary,
-        (select round(percentile_cont(0.75) within group (order by ${curSalary.amount}))
-          from ${curSalary})::int as p75_salary,
-        (select min(${curSalary.amount}) from ${curSalary})::int as min_salary,
-        (select max(${curSalary.amount}) from ${curSalary})::int as max_salary,
+        (select round(avg(amount)) from cur_salary)::int as avg_salary,
+        (select round(percentile_cont(0.5) within group (order by amount))
+          from cur_salary)::int as median_salary,
+        (select round(percentile_cont(0.25) within group (order by amount))
+          from cur_salary)::int as p25_salary,
+        (select round(percentile_cont(0.75) within group (order by amount))
+          from cur_salary)::int as p75_salary,
+        (select min(amount) from cur_salary)::int as min_salary,
+        (select max(amount) from cur_salary)::int as max_salary,
         (select min(${employee.hireDate})::text from ${employee}) as first_hire,
         (select max(${employee.hireDate})::text from ${employee}) as last_hire,
-        (select round(avg((${asOfDate} - ${employee.hireDate}) / 365.25))
+        (select round(avg(((select * from as_of) - ${employee.hireDate}) / 365.25))
            from ${employee}
-           join ${curDept} on ${curDept.employeeId} = ${employee.id})::int as avg_tenure_years,
-        ${asOfText} as as_of,
+           join cur_dept on cur_dept.employee_id = ${employee.id})::int as avg_tenure_years,
+        (select * from as_of)::text as as_of,
         current_database() as database_name
     `,
   )
@@ -412,17 +416,16 @@ export async function loadDashboard(connectionString: string): Promise<Dashboard
   return withDb(connectionString, async (db) =>
     db.transaction(
       async (tx) => {
+        // 串行执行：事务固定在同一条连接上，并发只会排队，不省时间，
+        // 而且串行能让 SQL 报错时立刻定位到是哪一段。
         const totals = await loadTotals(tx)
-        const [distribution, retention, departments, titles, gender, salaryTrend, topEarners] =
-          await Promise.all([
-            loadDistribution(tx),
-            loadRetention(tx),
-            loadDepartments(tx),
-            loadTitles(tx),
-            loadGender(tx),
-            loadTrend(tx),
-            loadTopEarners(tx),
-          ])
+        const distribution = await loadDistribution(tx)
+        const retention = await loadRetention(tx)
+        const departments = await loadDepartments(tx)
+        const titles = await loadTitles(tx)
+        const gender = await loadGender(tx)
+        const salaryTrend = await loadTrend(tx)
+        const topEarners = await loadTopEarners(tx)
 
         return {
           generatedAt: new Date().toISOString(),

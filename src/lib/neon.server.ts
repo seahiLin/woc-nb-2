@@ -53,7 +53,6 @@ export async function withDb<T>(
   const pool = new Pool({
     connectionString,
     connectionTimeoutMillis: 10_000,
-    query_timeout: 30_000,
     max: 1,
   })
 
