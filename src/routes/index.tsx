@@ -96,7 +96,7 @@ function Masthead({
 }
 
 /* ------------------------------------------------------------------ */
-/* 首屏：两个数字 + 一句背景                                            */
+/* 首屏：一句话结论 + 四个数字                                          */
 /* ------------------------------------------------------------------ */
 
 function Hero({ dashboard }: { dashboard: Dashboard }) {
@@ -111,11 +111,10 @@ function Hero({ dashboard }: { dashboard: Dashboard }) {
         中位年薪 {fmtMoneyShort(totals.medianSalary)}
       </h1>
 
-      <p className="mt-7 max-w-[54ch] text-[15px] leading-[1.8] text-ink-soft">
-        截至 {fmtYearMonth(dashboard.asOf)}，这些人分布在 {fmtInt(totals.departments)} 个部门，
-        平均司龄 {totals.avgTenureYears} 年。年薪中位 {fmtMoney(totals.medianSalary)}、平均{' '}
-        {fmtMoney(totals.avgSalary)} —— 均值更高，说明少数高薪者把整体拉了上去。给得最多的是{' '}
-        {highest?.name}，平均 {fmtMoney(highest?.avgSalary ?? 0)}。
+      <p className="mt-7 max-w-[52ch] text-[15px] leading-[1.8] text-ink-soft">
+        均值 {fmtMoney(totals.avgSalary)} 高于中位 {fmtMoney(totals.medianSalary)}，
+        少数高薪者把整体拉了上去。给得最多的是 {highest?.name}，平均{' '}
+        {fmtMoney(highest?.avgSalary ?? 0)}。
       </p>
 
       <dl className="mt-12 grid grid-cols-2 gap-y-7 border-t border-rule pt-7 sm:grid-cols-4">
@@ -275,23 +274,21 @@ function DepartmentBars({
 /* ------------------------------------------------------------------ */
 
 function Hiring({ dashboard }: { dashboard: Dashboard }) {
-  const { retention, totals } = dashboard
+  const { retention } = dashboard
   const first = retention[0]
   const last = retention[retention.length - 1]
-  const drop =
-    first && last && first.hired > 0 ? (last.hired - first.hired) / first.hired : 0
 
   const peak = retention.reduce((best, row) => (row.hired > best.hired ? row : best), retention[0])
 
   return (
     <Section
-      title={`招聘规模 ${first?.year ?? ''}–${last?.year ?? ''} 年缩了 ${fmtPercent(Math.abs(drop), 0)}`}
+      title={`${last?.year ?? ''} 年只招了 ${fmtInt(last?.hired ?? 0)} 人`}
       lede={
         <>
-          {peak?.year} 年前后是招聘高峰，一年入职 {fmtInt(peak?.hired ?? 0)} 人；
-          {last?.year} 年只招了 {fmtInt(last?.hired ?? 0)} 人。但进来的人留得住：最早那一批仍有{' '}
-          {fmtPercent((first?.active ?? 0) / Math.max(first?.hired ?? 1, 1), 0)} 在职，
-          在职员工的平均司龄因此达到 {totals.avgTenureYears} 年。
+          招聘规模从 {peak?.year} 年的 {fmtInt(peak?.hired ?? 0)} 人一路降到 {last?.year} 年的{' '}
+          {fmtInt(last?.hired ?? 0)} 人，十六年间几乎停下来。但进来的人留得住：
+          {first?.year} 年入职的那一批，仍有{' '}
+          {fmtPercent((first?.active ?? 0) / Math.max(first?.hired ?? 1, 1), 0)} 在职。
         </>
       }
     >
@@ -329,22 +326,15 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
     ? Math.max(...comparable.map((t) => Math.abs((t.femaleAvg - t.maleAvg) / t.maleAvg)))
     : 0
 
-  const topTwo = titles.slice(0, 2)
-  const topTwoShare =
-    titles.reduce((sum, t) => sum + t.headcount, 0) > 0
-      ? topTwo.reduce((sum, t) => sum + t.headcount, 0) /
-        titles.reduce((sum, t) => sum + t.headcount, 0)
-      : 0
-
   return (
     <Section
-      title="同岗男女薪酬几乎持平"
+      title={`男女平均年薪差 ${fmtPercent(Math.abs(overallGap), 1)}`}
       lede={
         <>
-          {topTwo.length} 个最常见的职衔是 {topTwo[0]?.title} 和 {topTwo[1]?.title}，
-          合起来占了 {fmtPercent(topTwoShare, 0)}。全员口径下女性平均比男性低{' '}
-          {fmtPercent(Math.abs(overallGap), 1)}，但拆进同一职衔内部，最大差距也只有{' '}
-          {fmtPercent(worstGap, 1)} —— 总额上的差异主要来自职衔构成，而不是同岗不同酬。
+          女性 {fmtInt(gender.female.headcount)} 人，平均 {fmtMoney(gender.female.avgSalary)}；
+          男性 {fmtInt(gender.male.headcount)} 人，平均 {fmtMoney(gender.male.avgSalary)}。
+          拆到职衔内部也几乎一样 —— 差距最大的一项也只有 {fmtPercent(worstGap, 1)}。
+          女性在各职衔里的占比都在 40% 上下。
         </>
       }
     >
