@@ -1,9 +1,10 @@
 /**
- * 图表原语与格式化工具。
+ * 图表与格式化。
  *
  * 不引图表库：数据量小、形状固定，手写 SVG 更可控，也不给客户端加体积。
- * 只用两种墨色：主色画主体，朱红只标记一个「关键值」。图表不画边框、
- * 不画底色，靠留白和疏密区分，不靠配色。
+ *
+ * 用色规则只有一条：红（`--color-ledger`）是「基准线」——直方图里的中位数、
+ * 部门图里的全员平均。它不出现在别的地方，所以看到红就知道在跟什么比。
  */
 
 import type { ReactNode } from 'react'
@@ -34,25 +35,25 @@ export const fmtMoneyShort = (value: number): string => {
 /** 300,024 */
 export const fmtInt = (value: number): string => int.format(Math.round(value))
 
-/** 0.4 → 40.0% */
-export const fmtPercent = (value: number, digits = 1): string =>
+/** 0.4 → 40% */
+export const fmtPercent = (value: number, digits = 0): string =>
   `${(value * 100).toFixed(digits)}%`
 
-/** '2002-08-02' → '2002.08' */
+/** '2002-08-02' → '2002 年 8 月' */
 export const fmtYearMonth = (value: string): string => {
   const match = /^(\d{4})-(\d{2})/.exec(value)
-  return match ? `${match[1]}.${match[2]}` : value
+  return match ? `${match[1]} 年 ${Number(match[2])} 月` : value
 }
 
-/** '2002-08-02' → '2002/08/02'，不依赖 locale，SSR 与浏览器一致。 */
+/** '2002-08-02' → '2002.08.02'，不依赖 locale，SSR 与浏览器一致。 */
 export const fmtDate = (value: string): string => {
   if (!value) return '—'
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
-  if (match) return `${match[1]}/${match[2]}/${match[3]}`
+  if (match) return `${match[1]}.${match[2]}.${match[3]}`
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getUTCFullYear()}/${pad(date.getUTCMonth() + 1)}/${pad(date.getUTCDate())}`
+  return `${date.getUTCFullYear()}.${pad(date.getUTCMonth() + 1)}.${pad(date.getUTCDate())}`
 }
 
 /* ------------------------------------------------------------------ */
@@ -60,61 +61,71 @@ export const fmtDate = (value: string): string => {
 /* ------------------------------------------------------------------ */
 
 /**
- * 一节 = 一句结论 + 一段话 + 一块图。
- * 标题本身就是结论，所以不再另加小标签或编号。
+ * 一节 = 左边栏标出这是什么 + 右边一条结论。左栏是登记册的栏目，
+ * 不是装饰：它让整页有了固定的阅读轴，扫视时先看左栏定位。
  */
 export function Section({
+  label,
   title,
   lede,
   children,
 }: {
-  title: string
+  label: string
+  title: ReactNode
   lede?: ReactNode
   children: ReactNode
 }) {
   return (
-    <section className="mt-14 border-t border-rule pt-12">
-      <h2 className="max-w-[26ch] text-[21px] leading-[1.3] font-semibold tracking-[-0.01em] text-ink sm:text-[24px]">
-        {title}
-      </h2>
-      {lede ? (
-        <p className="mt-3.5 max-w-[62ch] text-[14.5px] leading-[1.75] text-ink-soft">{lede}</p>
-      ) : null}
-      <div className="mt-9">{children}</div>
+    <section className="grid grid-cols-1 gap-y-6 border-t border-rule pt-10 sm:grid-cols-[8.5rem_1fr] sm:gap-x-10 sm:pt-12">
+      <p className="font-sans text-[11px] leading-[2.4] tracking-[0.06em] text-ink-faint sm:sticky sm:top-10 sm:self-start">
+        {label}
+      </p>
+      <div className="min-w-0">
+        <h2 className="max-w-[24ch] text-[25px] leading-[1.32] font-medium tracking-[-0.01em] text-balance sm:text-[29px]">
+          {title}
+        </h2>
+        {lede ? (
+          <p className="mt-4 max-w-[58ch] text-[15.5px] leading-[1.85] text-ink-soft">{lede}</p>
+        ) : null}
+        <div className="mt-9">{children}</div>
+      </div>
     </section>
   )
 }
 
-/** 图注：一行小字，说明怎么读这张图。 */
+/** 图注：说明怎么读，不解释为什么这么画。 */
 export function Caption({ children }: { children: ReactNode }) {
-  return <p className="mt-4 text-[11.5px] leading-relaxed text-ink-faint">{children}</p>
+  return <p className="mt-3.5 font-sans text-[11.5px] leading-relaxed text-ink-faint">{children}</p>
 }
 
 /* ------------------------------------------------------------------ */
-/* 薪酬分布：直方图 + 中位数/均值两条标记                                 */
+/* 薪酬分布：全幅直方图，中间半数加深，中位数是红色基准线                 */
 /* ------------------------------------------------------------------ */
 
 export function DistributionChart({
   buckets,
   median,
-  mean,
+  p25,
+  p75,
 }: {
   buckets: Array<{ from: number; to: number; count: number }>
   median: number
-  mean: number
+  p25: number
+  p75: number
 }) {
   if (buckets.length === 0) return null
 
   const W = 760
-  const H = 232
-  const padTop = 26
-  const padBottom = 34
+  const H = 244
+  const padTop = 30
+  const padBottom = 30
   const innerH = H - padTop - padBottom
   const max = Math.max(...buckets.map((b) => b.count), 1)
   const slot = W / buckets.length
-  const barW = Math.max(slot - 3, 2)
+  const barW = Math.max(slot - 3.5, 2)
+  const baseline = padTop + innerH
 
-  // 把金额映射到横向像素：先找落在哪一档，再在档内插值。
+  // 金额 → 横向像素：先定位档位，再在档内插值。
   const markerX = (value: number) => {
     const index = buckets.findIndex((b) => value >= b.from && value < b.to)
     const slotIndex = index === -1 ? buckets.length - 1 : index
@@ -123,9 +134,6 @@ export function DistributionChart({
       bucket.to === bucket.from ? 0.5 : (value - bucket.from) / (bucket.to - bucket.from)
     return slotIndex * slot + Math.min(Math.max(within, 0), 1) * slot
   }
-
-  const peak = buckets.reduce((best, b) => (b.count > best.count ? b : best), buckets[0])
-  const baseline = padTop + innerH
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="当前年薪分布">
@@ -141,58 +149,103 @@ export function DistributionChart({
 
       {buckets.map((bucket, index) => {
         const h = (bucket.count / max) * innerH
-        const x = index * slot + (slot - barW) / 2
-        const y = baseline - h
-        const isPeak = bucket === peak
+        const inMiddle = bucket.from >= p25 && bucket.from < p75
         return (
           <rect
             key={bucket.from}
-            x={x}
-            y={y}
+            x={index * slot + (slot - barW) / 2}
+            y={baseline - h}
             width={barW}
             height={Math.max(h, 1)}
-            className={isPeak ? 'text-accent' : 'text-ink/22'}
+            className={`plot ${inMiddle ? 'text-ink/85' : 'text-ink/22'}`}
             fill="currentColor"
+            style={{ animationDelay: `${index * 18}ms` }}
           />
         )
       })}
 
-      {/* 均值用虚线、中位数用实线；两者接近时也不互相压住。 */}
-      <line
-        x1={markerX(mean)}
-        x2={markerX(mean)}
-        y1={padTop - 8}
-        y2={baseline}
-        stroke="currentColor"
-        className="text-ink-faint"
-        strokeWidth={1}
-        strokeDasharray="3 3"
-      />
+      {/* 中位数：唯一的红。 */}
       <line
         x1={markerX(median)}
         x2={markerX(median)}
-        y1={padTop - 8}
+        y1={padTop - 16}
         y2={baseline}
         stroke="currentColor"
-        className="text-accent"
+        className="text-ledger"
         strokeWidth={1.5}
       />
+      <text
+        x={markerX(median)}
+        y={padTop - 22}
+        textAnchor="middle"
+        className="fill-ledger font-sans"
+        fontSize={11}
+      >
+        中位 {fmtMoney(median)}
+      </text>
 
       {buckets.map((bucket, index) =>
         index % 2 === 0 ? (
           <text
             key={`x-${bucket.from}`}
             x={index * slot + slot / 2}
-            y={H - 12}
+            y={H - 10}
             textAnchor="middle"
-            className="fill-ink-faint font-mono"
-            fontSize={10}
+            className="fill-ink-faint font-sans"
+            fontSize={10.5}
           >
             {bucket.from >= 120_000 ? '120K+' : `${bucket.from / 1000}K`}
           </text>
         ) : null,
       )}
     </svg>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* 部门：以全员平均为中轴的偏离条                                        */
+/* ------------------------------------------------------------------ */
+
+export function DepartmentBars({
+  rows,
+  average,
+}: {
+  rows: Array<{ id: string; name: string; avgSalary: number; headcount: number }>
+  average: number
+}) {
+  const widest = Math.max(...rows.map((r) => Math.abs(r.avgSalary - average)), 1)
+
+  return (
+    <div>
+      {rows.map((row) => {
+        const delta = row.avgSalary - average
+        const above = delta >= 0
+        const width = (Math.abs(delta) / widest) * 50
+        return (
+          <div
+            key={row.id}
+            className="grid grid-cols-[1fr_5.5rem] items-center gap-x-4 border-b border-rule/70 py-2.5 last:border-0 sm:grid-cols-[7.5rem_1fr_5.5rem]"
+          >
+            <span className="truncate text-[15px]">{row.name}</span>
+
+            <div className="relative order-last col-span-2 h-[14px] sm:order-none sm:col-span-1">
+              <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-ledger" />
+              <span
+                className={`absolute top-1/2 h-[14px] -translate-y-1/2 ${
+                  above ? 'bg-ink/80' : 'bg-ink/25'
+                }`}
+                style={{
+                  left: above ? '50%' : `${50 - width}%`,
+                  width: `${Math.max(width, 0.7)}%`,
+                }}
+              />
+            </div>
+
+            <span className="text-right text-[15px] tabular">{fmtMoney(row.avgSalary)}</span>
+          </div>
+        )
+      })}
+    </div>
   )
 }
 
@@ -209,28 +262,26 @@ export function RetentionChart({
   const max = Math.max(...data.map((d) => d.hired), 1)
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1">
       {data.map((row) => {
         const hiredW = (row.hired / max) * 100
         const keptW = (row.active / max) * 100
         const retained = row.hired > 0 ? row.active / row.hired : 0
         return (
-          <div key={row.year} className="group flex items-center gap-4">
-            <span className="w-9 shrink-0 font-mono text-[11px] tabular text-ink-faint">
-              {row.year}
-            </span>
-            <div className="relative h-[17px] flex-1">
+          <div key={row.year} className="grid grid-cols-[2.6rem_1fr_3rem] items-center gap-x-3">
+            <span className="font-sans text-[11.5px] tabular text-ink-faint">{row.year}</span>
+            <div className="relative h-[15px]">
               <div
-                className="absolute inset-y-0 left-0 rounded-[1px] bg-ink/12"
+                className="absolute inset-y-0 left-0 bg-ink/15"
                 style={{ width: `${hiredW}%` }}
               />
               <div
-                className="absolute inset-y-0 left-0 rounded-[1px] bg-ink/70 transition-colors group-hover:bg-ink"
+                className="absolute inset-y-0 left-0 bg-ink/75"
                 style={{ width: `${keptW}%` }}
               />
             </div>
-            <span className="w-9 shrink-0 text-right font-mono text-[11px] tabular text-ink-faint">
-              {fmtPercent(retained, 0)}
+            <span className="text-right text-[13px] tabular text-ink-soft">
+              {fmtPercent(retained)}
             </span>
           </div>
         )
@@ -263,13 +314,13 @@ export function RangeBar({
   const mid = Math.min(Math.max(pos(median), 0), 100)
 
   return (
-    <div className="relative h-[6px] w-full rounded-full bg-ink/[0.05]">
+    <div className="relative h-[5px] w-full bg-ink/[0.07]">
       <div
-        className="absolute inset-y-0 rounded-full bg-ink/22"
+        className="absolute inset-y-0 bg-ink/25"
         style={{ left: `${left}%`, width: `${Math.max(right - left, 1)}%` }}
       />
       <div
-        className="absolute top-1/2 h-[10px] w-[1.5px] -translate-y-1/2 rounded-full bg-ink"
+        className="absolute top-1/2 h-[9px] w-[1.5px] -translate-y-1/2 bg-ink"
         style={{ left: `${mid}%` }}
       />
     </div>

@@ -3,9 +3,10 @@ import { useServerFn } from '@tanstack/react-start'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { findEmployees, getDashboard } from '../lib/dashboard.functions'
-import type { Dashboard, DepartmentStat, EmployeeRow } from '../lib/dashboard-types'
+import type { Dashboard, EmployeeRow } from '../lib/dashboard-types'
 import {
   Caption,
+  DepartmentBars,
   DistributionChart,
   RangeBar,
   RetentionChart,
@@ -42,18 +43,23 @@ function DashboardPage() {
   }, [fetchDashboard])
 
   return (
-    <div className="mx-auto max-w-[1060px] px-5 pb-28 sm:px-8">
+    <div className="mx-auto max-w-[900px] px-5 pb-32 sm:px-8">
       <Masthead dashboard={dashboard} refreshing={refreshing} onRefresh={refresh} />
 
       {dashboard ? (
         <main>
-          <Hero dashboard={dashboard} />
-          <Distribution dashboard={dashboard} />
+          <Opening dashboard={dashboard} />
           <Departments dashboard={dashboard} />
           <Hiring dashboard={dashboard} />
           <Titles dashboard={dashboard} />
           <TopEarners dashboard={dashboard} />
           <Lookup />
+          <footer className="mt-16 border-t border-rule pt-5 font-sans text-[11.5px] leading-relaxed text-ink-faint">
+            记录覆盖 {dashboard.retention[0]?.year}–
+            {dashboard.retention[dashboard.retention.length - 1]?.year} 年入职的{' '}
+            {fmtInt(dashboard.totals.employees)} 人，统计基准日{' '}
+            {fmtDate(dashboard.asOf)}。
+          </footer>
         </main>
       ) : (
         <Unavailable error={result.error} onRetry={refresh} />
@@ -63,7 +69,7 @@ function DashboardPage() {
 }
 
 /* ------------------------------------------------------------------ */
-/* 页眉                                                                */
+/* 页眉：登记册的表头                                                    */
 /* ------------------------------------------------------------------ */
 
 function Masthead({
@@ -76,19 +82,19 @@ function Masthead({
   onRefresh: () => void
 }) {
   return (
-    <header className="flex items-baseline justify-between gap-4 border-b border-rule py-5">
-      <p className="text-[13px] font-semibold tracking-tight text-ink">员工与薪酬</p>
-      <div className="flex items-baseline gap-4">
-        <p className="font-mono text-[11.5px] tabular text-ink-faint">
-          {dashboard ? `截至 ${fmtYearMonth(dashboard.asOf)}` : ''}
+    <header className="flex items-baseline justify-between gap-4 border-b border-ink py-4">
+      <p className="text-[15px] font-medium">员工与薪酬</p>
+      <div className="flex items-baseline gap-5">
+        <p className="font-sans text-[11.5px] tabular text-ink-faint">
+          {dashboard ? fmtYearMonth(dashboard.asOf) : ''}
         </p>
         <button
           type="button"
           onClick={onRefresh}
           disabled={refreshing}
-          className="text-[11.5px] text-ink-faint transition hover:text-ink disabled:opacity-40"
+          className="font-sans text-[11.5px] text-ink-soft underline decoration-rule-strong underline-offset-4 transition hover:text-ink hover:decoration-ink disabled:opacity-40"
         >
-          {refreshing ? '更新中' : '更新'}
+          {refreshing ? '更新中' : '重新统计'}
         </button>
       </div>
     </header>
@@ -96,176 +102,118 @@ function Masthead({
 }
 
 /* ------------------------------------------------------------------ */
-/* 首屏：一句话结论 + 四个数字                                          */
+/* 开场：直接把分布摆出来，用图本身当标题                                 */
 /* ------------------------------------------------------------------ */
 
-function Hero({ dashboard }: { dashboard: Dashboard }) {
-  const { totals, departments } = dashboard
-  const highest = departments.reduce((best, d) => (d.avgSalary > best.avgSalary ? d : best), departments[0])
+function Opening({ dashboard }: { dashboard: Dashboard }) {
+  const { totals, distribution, departments } = dashboard
 
-  return (
-    <div className="settle pt-16 pb-4 sm:pt-24">
-      <h1 className="max-w-[20ch] text-[40px] leading-[1.08] font-semibold tracking-[-0.035em] text-ink sm:text-[54px]">
-        {fmtInt(totals.activeEmployees)} 人在职，
-        <br />
-        中位年薪 {fmtMoneyShort(totals.medianSalary)}
-      </h1>
-
-      <p className="mt-7 max-w-[52ch] text-[15px] leading-[1.8] text-ink-soft">
-        均值 {fmtMoney(totals.avgSalary)} 高于中位 {fmtMoney(totals.medianSalary)}，
-        少数高薪者把整体拉了上去。给得最多的是 {highest?.name}，平均{' '}
-        {fmtMoney(highest?.avgSalary ?? 0)}。
-      </p>
-
-      <dl className="mt-12 grid grid-cols-2 gap-y-7 border-t border-rule pt-7 sm:grid-cols-4">
-        <HeroFigure label="累计雇员" value={fmtInt(totals.employees)} />
-        <HeroFigure label="部门" value={fmtInt(totals.departments)} />
-        <HeroFigure label="平均司龄" value={`${totals.avgTenureYears} 年`} />
-        <HeroFigure
-          label="年薪区间"
-          value={`${fmtMoneyShort(totals.minSalary)} – ${fmtMoneyShort(totals.maxSalary)}`}
-        />
-      </dl>
-    </div>
+  const highest = departments.reduce(
+    (best, d) => (d.avgSalary > best.avgSalary ? d : best),
+    departments[0],
   )
-}
-
-function HeroFigure({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt className="text-[11.5px] text-ink-faint">{label}</dt>
-      <dd className="mt-1.5 font-mono text-[17px] tabular font-medium text-ink">{value}</dd>
-    </div>
-  )
-}
-
-/* ------------------------------------------------------------------ */
-/* 薪酬分布                                                            */
-/* ------------------------------------------------------------------ */
-
-function Distribution({ dashboard }: { dashboard: Dashboard }) {
-  const { distribution, totals } = dashboard
-
   const peak = distribution.buckets.reduce(
     (best, bucket) => (bucket.count > best.count ? bucket : best),
     distribution.buckets[0] ?? { from: 0, to: 0, count: 0 },
   )
 
   return (
-    <Section
-      title={`大多数人的年薪在 ${fmtMoneyShort(peak.from)}–${fmtMoneyShort(peak.to)}`}
-      lede={
-        <>
-          {fmtInt(totals.activeEmployees)} 名在职员工的当前年薪，按 $5K 一档切开后向右拖出一条长尾。
-          一半人的年薪在 {fmtMoney(totals.p25Salary)} 到 {fmtMoney(totals.p75Salary)} 之间，
-          均值 {fmtMoney(distribution.mean)} 却高于中位数 {fmtMoney(distribution.median)}{' '}
-          —— 差距全在那条尾巴上。
-        </>
-      }
-    >
-      <DistributionChart
-        buckets={distribution.buckets}
-        median={distribution.median}
-        mean={distribution.mean}
-      />
-      <Caption>
-        实线中位数 {fmtMoney(distribution.median)} · 虚线均值 {fmtMoney(distribution.mean)}
-      </Caption>
-    </Section>
+    <div className="pt-12 sm:pt-16">
+      <h1 className="max-w-[22ch] text-[27px] leading-[1.34] font-medium tracking-[-0.01em] text-balance sm:text-[33px]">
+        {fmtInt(totals.activeEmployees)} 名在职员工的年薪，
+        一半挤在 {fmtMoneyShort(totals.p25Salary)} 到 {fmtMoneyShort(totals.p75Salary)} 之间
+      </h1>
+
+      <p className="mt-4 max-w-[54ch] text-[15.5px] leading-[1.85] text-ink-soft">
+        中位 {fmtMoney(totals.medianSalary)}，均值 {fmtMoney(totals.avgSalary)}——
+        右边那条长尾把均值抬了起来。给得最多的是 {highest?.name}，平均{' '}
+        {fmtMoney(highest?.avgSalary ?? 0)}。
+      </p>
+
+      <figure className="mt-9">
+        <DistributionChart
+          buckets={distribution.buckets}
+          median={distribution.median}
+          p25={totals.p25Salary}
+          p75={totals.p75Salary}
+        />
+        <figcaption className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1 font-sans text-[11.5px] text-ink-faint">
+          <span>深色为中间半数</span>
+          <span>红线为中位数</span>
+          <span>
+            人数最多的一档是 {fmtMoneyShort(peak.from)}–{fmtMoneyShort(peak.to)}
+          </span>
+        </figcaption>
+      </figure>
+
+      <dl className="mt-12 grid grid-cols-2 gap-y-6 border-t border-rule pt-6 sm:grid-cols-4">
+        <Figure label="累计雇员" value={fmtInt(totals.employees)} />
+        <Figure label="部门" value={fmtInt(totals.departments)} />
+        <Figure label="平均司龄" value={`${totals.avgTenureYears} 年`} />
+        <Figure
+          label="年薪区间"
+          value={`${fmtMoneyShort(totals.minSalary)}–${fmtMoneyShort(totals.maxSalary)}`}
+        />
+      </dl>
+    </div>
+  )
+}
+
+function Figure({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="font-sans text-[11px] tracking-[0.04em] text-ink-faint">{label}</dt>
+      <dd className="mt-1 text-[19px] tabular">{value}</dd>
+    </div>
   )
 }
 
 /* ------------------------------------------------------------------ */
-/* 部门：以全员平均为中轴的偏离条                                        */
+/* 部门                                                                */
 /* ------------------------------------------------------------------ */
 
 function Departments({ dashboard }: { dashboard: Dashboard }) {
   const { departments, totals } = dashboard
 
-  const bySalary = [...departments].sort((a, b) => b.avgSalary - a.avgSalary)
+  const bySalary = useMemo(
+    () => [...departments].sort((a, b) => b.avgSalary - a.avgSalary),
+    [departments],
+  )
   const highest = bySalary[0]
-  const biggest = departments.reduce((best, d) => (d.headcount > best.headcount ? d : best), departments[0])
+  const lowest = bySalary[bySalary.length - 1]
+  const biggest = departments.reduce(
+    (best, d) => (d.headcount > best.headcount ? d : best),
+    departments[0],
+  )
   const biggestRank = biggest ? bySalary.findIndex((d) => d.id === biggest.id) + 1 : 0
-  const highestRank = highest ? departments.findIndex((d) => d.id === highest.id) + 1 : 0
 
   return (
     <Section
-      title="人多的部门不一定给得多"
+      label="部门"
+      title={
+        <>
+          人最多的 {biggest?.name}，薪酬排第 {biggestRank}
+        </>
+      }
       lede={
         <>
-          {biggest?.name} 是最大的部门，{fmtInt(biggest?.headcount ?? 0)} 人，平均薪酬只排第{' '}
-          {biggestRank || '—'}；{highest?.name} 给得最多（平均 {fmtMoney(highest?.avgSalary ?? 0)}），
-          人数却排第 {highestRank || '—'}。高低之间相差{' '}
-          {fmtMoney((highest?.avgSalary ?? 0) - (bySalary[bySalary.length - 1]?.avgSalary ?? 0))}。
+          {biggest?.name} 有 {fmtInt(biggest?.headcount ?? 0)} 人，是最大的部门，平均薪酬却只排第{' '}
+          {biggestRank}；{highest?.name} 给得最多，平均 {fmtMoney(highest?.avgSalary ?? 0)}，
+          比 {lowest?.name} 高出{' '}
+          {fmtPercent(
+            ((highest?.avgSalary ?? 0) - (lowest?.avgSalary ?? 0)) /
+              Math.max(lowest?.avgSalary ?? 1, 1),
+            0,
+          )}
+          。部门之间的差别，比同部门内部的差别小得多。
         </>
       }
     >
-      <DepartmentBars departments={departments} average={totals.avgSalary} />
+      <DepartmentBars rows={bySalary} average={totals.avgSalary} />
       <Caption>
-        以全员平均 {fmtMoney(totals.avgSalary)} 为中轴，右为高于平均、左为低于平均
+        红线是全员平均 {fmtMoney(totals.avgSalary)}，条形是各部门与它的距离
       </Caption>
     </Section>
-  )
-}
-
-function DepartmentBars({
-  departments,
-  average,
-}: {
-  departments: DepartmentStat[]
-  average: number
-}) {
-  const rows = useMemo(
-    () =>
-      [...departments]
-        .sort((a, b) => b.avgSalary - a.avgSalary)
-        .map((dept) => ({
-          ...dept,
-          delta: dept.avgSalary - average,
-        })),
-    [departments, average],
-  )
-
-  const widest = Math.max(...rows.map((row) => Math.abs(row.delta)), 1)
-  const top = rows[0]
-
-  return (
-    <div>
-      {rows.map((row) => {
-        const width = (Math.abs(row.delta) / widest) * 50
-        const above = row.delta >= 0
-        const isTop = row.id === top?.id
-        return (
-          <div
-            key={row.id}
-            className="grid grid-cols-[6.5rem_1fr_5.5rem] items-center gap-4 border-b border-rule/60 py-2.5 last:border-0 sm:grid-cols-[8rem_1fr_6.5rem_5rem]"
-          >
-            <span className="truncate text-[13.5px] text-ink">{row.name}</span>
-
-            <div className="relative h-[16px]">
-              <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-rule-strong" />
-              <span
-                className={`absolute top-1/2 h-[16px] -translate-y-1/2 rounded-[1px] ${
-                  isTop ? 'bg-accent' : above ? 'bg-ink/70' : 'bg-ink/25'
-                }`}
-                style={{
-                  left: above ? '50%' : `${50 - width}%`,
-                  width: `${Math.max(width, 0.8)}%`,
-                }}
-              />
-            </div>
-
-            <span className="text-right font-mono text-[12.5px] tabular text-ink">
-              {fmtMoney(row.avgSalary)}
-            </span>
-
-            <span className="hidden text-right font-mono text-[11.5px] tabular text-ink-faint sm:block">
-              {fmtInt(row.headcount)} 人
-            </span>
-          </div>
-        )
-      })}
-    </div>
   )
 }
 
@@ -277,25 +225,27 @@ function Hiring({ dashboard }: { dashboard: Dashboard }) {
   const { retention } = dashboard
   const first = retention[0]
   const last = retention[retention.length - 1]
-
   const peak = retention.reduce((best, row) => (row.hired > best.hired ? row : best), retention[0])
 
   return (
     <Section
-      title={`${last?.year ?? ''} 年只招了 ${fmtInt(last?.hired ?? 0)} 人`}
+      label="招聘"
+      title={
+        <>
+          {last?.year} 年只招了 {fmtInt(last?.hired ?? 0)} 人
+        </>
+      }
       lede={
         <>
-          招聘规模从 {peak?.year} 年的 {fmtInt(peak?.hired ?? 0)} 人一路降到 {last?.year} 年的{' '}
-          {fmtInt(last?.hired ?? 0)} 人，十六年间几乎停下来。但进来的人留得住：
-          {first?.year} 年入职的那一批，仍有{' '}
-          {fmtPercent((first?.active ?? 0) / Math.max(first?.hired ?? 1, 1), 0)} 在职。
+          从 {peak?.year} 年的 {fmtInt(peak?.hired ?? 0)} 人一路降到 {last?.year} 年的{' '}
+          {fmtInt(last?.hired ?? 0)} 人，十六年里几乎停下来。但招进来的人留得住：
+          {first?.year} 年入职的那一批，到 {fmtYearMonth(dashboard.asOf)} 仍有{' '}
+          {fmtPercent((first?.active ?? 0) / Math.max(first?.hired ?? 1, 1))} 在职。
         </>
       }
     >
       <RetentionChart data={retention} />
-      <Caption>
-        每行一年，深色为到 {fmtYearMonth(dashboard.asOf)} 仍在职的人，右侧数字为留存率
-      </Caption>
+      <Caption>每行一年，深色是到 {fmtYearMonth(dashboard.asOf)} 仍在职的人</Caption>
     </Section>
   )
 }
@@ -320,7 +270,7 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
       ? (gender.female.avgSalary - gender.male.avgSalary) / gender.male.avgSalary
       : 0
 
-  // 只看样本足够大的职衔，避免个别小样本把结论带偏。
+  // 只看样本足够大的职衔，避免 9 人的 Manager 把结论带偏。
   const comparable = titles.filter((t) => t.maleAvg > 0 && t.femaleAvg > 0 && t.headcount >= 3000)
   const worstGap = comparable.length
     ? Math.max(...comparable.map((t) => Math.abs((t.femaleAvg - t.maleAvg) / t.maleAvg)))
@@ -328,37 +278,37 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
 
   return (
     <Section
-      title={`男女平均年薪差 ${fmtPercent(Math.abs(overallGap), 1)}`}
+      label="职衔"
+      title={<>男女平均年薪差 {fmtPercent(Math.abs(overallGap), 1)}</>}
       lede={
         <>
           女性 {fmtInt(gender.female.headcount)} 人，平均 {fmtMoney(gender.female.avgSalary)}；
           男性 {fmtInt(gender.male.headcount)} 人，平均 {fmtMoney(gender.male.avgSalary)}。
-          拆到职衔内部也几乎一样 —— 差距最大的一项也只有 {fmtPercent(worstGap, 1)}。
-          女性在各职衔里的占比都在 40% 上下。
+          拆到职衔内部也一样——差距最大的一项只有 {fmtPercent(worstGap, 1)}。
         </>
       }
     >
       <table className="w-full border-collapse text-left">
         <thead>
-          <tr className="border-b border-rule">
+          <tr className="border-b border-rule-strong">
             <Th>职衔</Th>
             <Th align="right">人数</Th>
             <Th align="right">平均年薪</Th>
-            <Th className="hidden w-[26%] sm:table-cell">最低 – 最高</Th>
+            <Th className="hidden w-[24%] sm:table-cell">最低 – 最高</Th>
             <Th align="right">女性</Th>
           </tr>
         </thead>
         <tbody>
           {titles.map((row) => (
-            <tr key={row.title} className="border-b border-rule/60">
-              <td className="py-3 pr-4 text-[13.5px] text-ink">{row.title}</td>
-              <td className="py-3 pr-4 text-right font-mono text-[12px] tabular text-ink-faint">
+            <tr key={row.title} className="border-b border-rule/70">
+              <td className="py-2.5 pr-4 text-[15px]">{row.title}</td>
+              <td className="py-2.5 pr-4 text-right text-[13.5px] tabular text-ink-soft">
                 {fmtInt(row.headcount)}
               </td>
-              <td className="py-3 pr-4 text-right font-mono text-[12.5px] tabular text-ink">
+              <td className="py-2.5 pr-4 text-right text-[14.5px] tabular">
                 {fmtMoney(row.avgSalary)}
               </td>
-              <td className="hidden py-3 pr-4 sm:table-cell">
+              <td className="hidden py-2.5 pr-4 sm:table-cell">
                 <RangeBar
                   min={row.minSalary}
                   max={row.maxSalary}
@@ -367,15 +317,15 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
                   domainMax={domain.max}
                 />
               </td>
-              <td className="py-3 text-right font-mono text-[12px] tabular text-ink-faint">
-                {fmtPercent(row.femaleShare, 0)}
+              <td className="py-2.5 text-right text-[13.5px] tabular text-ink-soft">
+                {fmtPercent(row.femaleShare)}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
       <Caption>
-        竖线为中位数；女性一列为该职衔内女性占比，整体女性占 {fmtPercent(femaleShare, 0)}
+        竖线为中位数；整体女性占 {fmtPercent(femaleShare)}
       </Caption>
     </Section>
   )
@@ -386,57 +336,52 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
 /* ------------------------------------------------------------------ */
 
 function TopEarners({ dashboard }: { dashboard: Dashboard }) {
-  const { topEarners } = dashboard
+  const { topEarners, totals } = dashboard
   const first = topEarners[0]
   const last = topEarners[topEarners.length - 1]
-  const spread =
-    first && last && first.salary > 0 ? (first.salary - last.salary) / first.salary : 0
   const overMedian =
-    dashboard.totals.medianSalary > 0
-      ? (first?.salary ?? 0) / dashboard.totals.medianSalary - 1
-      : 0
+    totals.medianSalary > 0 ? (first?.salary ?? 0) / totals.medianSalary - 1 : 0
 
-  // 十人往往同职衔同部门，那就只在导语里说一次，不必每行重复。
-  const sameTitle = topEarners.every((p) => p.title === first?.title)
-  const sameDept = topEarners.every((p) => p.department === first?.department)
+  // 十人往往同职衔同部门，那就说一次，不必每行重复。
+  const uniform =
+    topEarners.length > 0 &&
+    topEarners.every((p) => p.title === first?.title && p.department === first?.department)
 
   return (
     <Section
+      label="最高薪"
       title={
-        sameTitle && sameDept
-          ? `最贵的十人，全是 ${first?.title}`
-          : '薪酬最高的十人'
+        uniform ? (
+          <>最贵的十个人，全是 {first?.title}</>
+        ) : (
+          <>薪酬最高的十个人</>
+        )
       }
       lede={
         first ? (
           <>
-            {sameTitle && sameDept ? (
+            {uniform ? (
               <>
-                十人都在 {first.department}，职衔都是 {first.title}。
+                十人都在 {first.department}。{' '}
               </>
             ) : null}
-            第 1 名 {first.name} 年薪 {fmtMoney(first.salary)}，第 10 名{' '}
-            {fmtMoney(last?.salary ?? 0)} —— 前十里相差 {fmtPercent(spread, 0)}，
-            但第 1 名已经比中位数高出 {fmtPercent(overMedian, 0)}。
+            第 1 名 {first.name} 年薪 {fmtMoney(first.salary)}，比中位数高出{' '}
+            {fmtPercent(overMedian)}；第 10 名 {fmtMoney(last?.salary ?? 0)}。
           </>
-        ) : (
-          '暂无数据。'
-        )
+        ) : null
       }
     >
       <ol className="grid grid-cols-1 gap-x-10 sm:grid-cols-2">
         {topEarners.map((person, index) => (
           <li
             key={person.id}
-            className="flex items-baseline gap-4 border-b border-rule/60 py-2.5"
+            className="flex items-baseline gap-3 border-b border-rule/70 py-2 last:border-0 sm:[&:nth-last-child(-n+2)]:border-0"
           >
-            <span className="w-4 shrink-0 font-mono text-[11px] tabular text-ink-faint">
+            <span className="w-5 shrink-0 font-sans text-[11px] tabular text-ink-faint">
               {String(index + 1).padStart(2, '0')}
             </span>
-            <span className="min-w-0 flex-1 truncate text-[13px] text-ink">{person.name}</span>
-            <span className="shrink-0 font-mono text-[12.5px] tabular text-ink">
-              {fmtMoney(person.salary)}
-            </span>
+            <span className="min-w-0 flex-1 truncate text-[15px]">{person.name}</span>
+            <span className="shrink-0 text-[14.5px] tabular">{fmtMoney(person.salary)}</span>
           </li>
         ))}
       </ol>
@@ -485,14 +430,19 @@ function Lookup() {
   }, [term, fetchEmployees])
 
   return (
-    <Section title="查一个人" lede="按工号精确查，或按姓 / 名的片段模糊查。">
-      <div className="relative max-w-[420px]">
+    <Section
+      label="查阅"
+      title={<>查一个人</>}
+      lede="按工号精确查，或按姓、名的片段模糊查。"
+    >
+      <div className="relative max-w-[360px]">
         <input
           ref={inputRef}
           value={term}
           onChange={(event) => setTerm(event.target.value)}
           placeholder="工号、姓或名"
-          className="w-full border-b border-rule-strong bg-transparent py-2.5 pr-8 text-[13.5px] text-ink outline-none transition placeholder:text-ink-faint focus:border-ink"
+          aria-label="按工号、姓或名检索员工"
+          className="w-full border-b border-rule-strong bg-transparent py-2 pr-7 font-sans text-[13.5px] outline-none transition placeholder:text-ink-faint focus:border-ink"
         />
         {term ? (
           <button
@@ -502,25 +452,25 @@ function Lookup() {
               setTerm('')
               inputRef.current?.focus()
             }}
-            className="absolute top-1/2 right-1 -translate-y-1/2 px-1 text-[15px] leading-none text-ink-faint transition hover:text-ink"
+            className="absolute top-1/2 right-0 -translate-y-1/2 px-1 font-sans text-[15px] leading-none text-ink-faint transition hover:text-ink"
           >
             ×
           </button>
         ) : null}
       </div>
 
-      <div className="mt-6">
+      <div className="mt-5">
         {state === 'idle' ? null : state === 'loading' ? (
-          <p className="text-[12.5px] text-ink-faint">查询中…</p>
+          <p className="font-sans text-[12.5px] text-ink-faint">查询中…</p>
         ) : error ? (
-          <p className="text-[12.5px] text-ink-faint">{error}</p>
+          <p className="font-sans text-[12.5px] text-ink-faint">{error}</p>
         ) : rows.length === 0 ? (
-          <p className="text-[12.5px] text-ink-faint">没有匹配的人。</p>
+          <p className="font-sans text-[12.5px] text-ink-faint">没有匹配的人。</p>
         ) : (
           <>
             <table className="w-full border-collapse text-left">
               <thead>
-                <tr className="border-b border-rule">
+                <tr className="border-b border-rule-strong">
                   <Th>工号</Th>
                   <Th>姓名</Th>
                   <Th className="hidden sm:table-cell">职衔</Th>
@@ -533,21 +483,21 @@ function Lookup() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id} className="border-b border-rule/60">
-                    <td className="py-2.5 pr-4 font-mono text-[11.5px] tabular text-ink-faint">
+                  <tr key={row.id} className="border-b border-rule/70">
+                    <td className="py-2 pr-4 font-sans text-[11.5px] tabular text-ink-faint">
                       {row.id}
                     </td>
-                    <td className="py-2.5 pr-4 text-[13px] text-ink">{row.name}</td>
-                    <td className="hidden py-2.5 pr-4 text-[12.5px] text-ink-soft sm:table-cell">
+                    <td className="py-2 pr-4 text-[15px]">{row.name}</td>
+                    <td className="hidden py-2 pr-4 text-[13.5px] text-ink-soft sm:table-cell">
                       {row.title ?? '—'}
                     </td>
-                    <td className="hidden py-2.5 pr-4 text-[12.5px] text-ink-soft sm:table-cell">
+                    <td className="hidden py-2 pr-4 text-[13.5px] text-ink-soft sm:table-cell">
                       {row.department ?? '—'}
                     </td>
-                    <td className="py-2.5 pr-4 text-right font-mono text-[12.5px] tabular text-ink">
+                    <td className="py-2 pr-4 text-right text-[14px] tabular">
                       {row.salary === null ? '—' : fmtMoney(row.salary)}
                     </td>
-                    <td className="hidden py-2.5 text-right font-mono text-[11.5px] tabular text-ink-faint sm:table-cell">
+                    <td className="hidden py-2 text-right font-sans text-[11.5px] tabular text-ink-faint sm:table-cell">
                       {fmtDate(row.hireDate)}
                     </td>
                   </tr>
@@ -555,7 +505,7 @@ function Lookup() {
               </tbody>
             </table>
             {truncated ? (
-              <p className="mt-3 text-[11.5px] text-ink-faint">
+              <p className="mt-3 font-sans text-[11.5px] text-ink-faint">
                 结果多于 25 条，只显示前 25 条。
               </p>
             ) : null}
@@ -581,7 +531,7 @@ function Th({
 }) {
   return (
     <th
-      className={`pb-2.5 text-[11.5px] font-normal text-ink-faint ${
+      className={`pb-2 font-sans text-[11px] font-normal tracking-[0.03em] text-ink-faint ${
         align === 'right' ? 'text-right' : 'text-left'
       } ${className}`}
     >
@@ -592,22 +542,24 @@ function Th({
 
 function Unavailable({ error, onRetry }: { error: string | null; onRetry: () => void }) {
   return (
-    <div className="pt-24">
-      <h1 className="text-[24px] font-semibold tracking-tight text-ink">没能加载到员工数据</h1>
-      <p className="mt-3 max-w-[48ch] text-[13.5px] leading-relaxed text-ink-soft">
-        这通常是暂时的。重试一次；如果仍然不行，稍后再来。
+    <div className="pt-20">
+      <h1 className="text-[24px] font-medium">读不到员工数据</h1>
+      <p className="mt-3 max-w-[48ch] text-[15px] leading-relaxed text-ink-soft">
+        这通常是暂时的。重新统计一次；如果还是不行，稍后再来。
       </p>
       <button
         type="button"
         onClick={onRetry}
-        className="mt-6 border-b border-ink pb-1 text-[13px] text-ink transition hover:opacity-60"
+        className="mt-6 border-b border-ink pb-1 text-[14px] transition hover:opacity-60"
       >
-        重试
+        重新统计
       </button>
       {error ? (
         <details className="mt-10 max-w-xl">
-          <summary className="cursor-pointer text-[11.5px] text-ink-faint">技术细节</summary>
-          <p className="mt-2 font-mono text-[11px] leading-relaxed break-words text-ink-faint">
+          <summary className="cursor-pointer font-sans text-[11.5px] text-ink-faint">
+            技术细节
+          </summary>
+          <p className="mt-2 font-sans text-[11px] leading-relaxed break-words text-ink-faint">
             {error}
           </p>
         </details>
