@@ -6,9 +6,10 @@
  * 这里用 `drizzle-orm/neon-serverless/migrator` 应用，和运行时同一个驱动、
  * 同一套 schema 定义，不需要在 CI 里另外配 drizzle-kit 的连接。
  *
- * 只在 main 上真正应用：分支 Preview 用的是同一套 Neon 连接串，如果它们也跑
- * 迁移，一次 push 就会改到生产库。非 main 只报告待应用的迁移（dry-run）。
- * 要单独对某个 Neon 分支库应用，设 `NEON_MIGRATE=apply`。
+ * 只在 main 上真正应用：无法从仓库里确认 Preview 的连接串指向哪个 Neon 库，
+ * 若它也指向生产库，一次 push 就会改到生产 schema。非 main 只报告待应用的
+ * 迁移（dry-run）。确认 Preview 指向独立的 Neon 分支后，可以放开这里，
+ * 或临时设 `NEON_MIGRATE=apply`。
  *
  * 失败策略：
  *   * 没有连接串 / 连不上 Neon → 只警告，不阻断部署（页面会退到快照）。
