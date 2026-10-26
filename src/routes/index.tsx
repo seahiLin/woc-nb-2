@@ -5,7 +5,6 @@ import type { ReactNode } from 'react'
 import { findEmployees, getDashboard } from '../lib/dashboard.functions'
 import type { Dashboard, EmployeeRow } from '../lib/dashboard-types'
 import {
-  Caption,
   DepartmentBars,
   DistributionChart,
   RangeBar,
@@ -55,10 +54,8 @@ function DashboardPage() {
           <TopEarners dashboard={dashboard} />
           <Lookup />
           <footer className="mt-16 border-t border-rule pt-5 font-sans text-[11.5px] leading-relaxed text-ink-faint">
-            记录覆盖 {dashboard.retention[0]?.year}–
-            {dashboard.retention[dashboard.retention.length - 1]?.year} 年入职的{' '}
-            {fmtInt(dashboard.totals.employees)} 人，统计基准日{' '}
-            {fmtDate(dashboard.asOf)}。
+            {fmtInt(dashboard.totals.employees)} 人的入职记录，统计基准日{' '}
+            {fmtDate(dashboard.asOf)}
           </footer>
         </main>
       ) : (
@@ -106,27 +103,16 @@ function Masthead({
 /* ------------------------------------------------------------------ */
 
 function Opening({ dashboard }: { dashboard: Dashboard }) {
-  const { totals, distribution, departments } = dashboard
-
-  const highest = departments.reduce(
-    (best, d) => (d.avgSalary > best.avgSalary ? d : best),
-    departments[0],
-  )
+  const { totals, distribution } = dashboard
 
   return (
     <div className="pt-12 sm:pt-16">
-      <h1 className="max-w-[14em] text-[27px] leading-[1.34] font-medium tracking-[-0.01em] text-balance sm:text-[33px]">
+      <h1 className="max-w-[13em] text-[28px] leading-[1.32] font-medium tracking-[-0.015em] text-balance sm:text-[36px]">
         {fmtInt(totals.activeEmployees)} 名在职员工的年薪，
         一半挤在 {fmtMoneyShort(totals.p25Salary)} 到 {fmtMoneyShort(totals.p75Salary)} 之间
       </h1>
 
-      <p className="mt-4 max-w-[52ch] text-[15.5px] leading-[1.85] text-ink-soft">
-        中位 {fmtMoney(totals.medianSalary)}，均值 {fmtMoney(totals.avgSalary)}。
-        右边那条长尾把均值抬了起来。给得最多的是 {highest?.name}，平均{' '}
-        {fmtMoney(highest?.avgSalary ?? 0)}。
-      </p>
-
-      <figure className="mt-9">
+      <figure className="mt-10">
         <DistributionChart
           buckets={distribution.buckets}
           median={distribution.median}
@@ -135,13 +121,9 @@ function Opening({ dashboard }: { dashboard: Dashboard }) {
         />
       </figure>
 
-      <dl className="mt-10 flex flex-wrap gap-x-10 gap-y-4 border-t border-rule pt-5">
+      <dl className="mt-9 flex flex-wrap gap-x-10 gap-y-3 border-t border-rule pt-4">
         <Figure label="累计雇员" value={fmtInt(totals.employees)} />
         <Figure label="平均司龄" value={`${totals.avgTenureYears} 年`} />
-        <Figure
-          label="年薪区间"
-          value={`${fmtMoneyShort(totals.minSalary)}–${fmtMoneyShort(totals.maxSalary)}`}
-        />
       </dl>
     </div>
   )
@@ -185,16 +167,13 @@ function Departments({ dashboard }: { dashboard: Dashboard }) {
       }
       lede={
         <>
-          {biggest?.name} 人最多，有 {fmtInt(biggest?.headcount ?? 0)} 人，平均薪酬却只排第{' '}
-          {biggestRank}；给得最多的 {highest?.name} 平均 {fmtMoney(highest?.avgSalary ?? 0)}，
-          人数只排第 {bySalary.length - bySalary.findIndex((d) => d.id === highest?.id)}。
+          但 {highest?.name} 人数只排第{' '}
+          {bySalary.length - bySalary.findIndex((d) => d.id === highest?.id)}；人最多的{' '}
+          {biggest?.name}（{fmtInt(biggest?.headcount ?? 0)} 人）薪酬排第 {biggestRank}。
         </>
       }
     >
       <DepartmentBars rows={bySalary} average={totals.avgSalary} />
-      <Caption>
-        条形是各部门与红线（全员平均）的距离
-      </Caption>
     </Section>
   )
 }
@@ -214,15 +193,13 @@ function Hiring({ dashboard }: { dashboard: Dashboard }) {
       title={<>{last?.year} 年只招了 {fmtInt(last?.hired ?? 0)} 人</>}
       lede={
         <>
-          从 {peak?.year} 年的 {fmtInt(peak?.hired ?? 0)} 人一路降到 {last?.year} 年的{' '}
-          {fmtInt(last?.hired ?? 0)} 人，十六年里几乎停下来。但招进来的人留得住：
-          {first?.year} 年入职的那一批，到 {fmtYearMonth(dashboard.asOf)} 仍有{' '}
+          高峰是 {peak?.year} 年的 {fmtInt(peak?.hired ?? 0)} 人。但招进来的人留得住：
+          {first?.year} 年入职的那一批，至今仍有{' '}
           {fmtPercent((first?.active ?? 0) / Math.max(first?.hired ?? 1, 1))} 在职。
         </>
       }
     >
       <RetentionChart data={retention} />
-      <Caption>每行一年，深色是到 {fmtYearMonth(dashboard.asOf)} 仍在职的人</Caption>
     </Section>
   )
 }
@@ -240,8 +217,6 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
     return { min: mins.length ? Math.min(...mins) : 0, max: maxs.length ? Math.max(...maxs) : 1 }
   }, [titles])
 
-  const total = gender.male.headcount + gender.female.headcount
-  const femaleShare = total > 0 ? gender.female.headcount / total : 0
   const overallGap =
     gender.male.avgSalary > 0
       ? (gender.female.avgSalary - gender.male.avgSalary) / gender.male.avgSalary
@@ -258,9 +233,9 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
       title={<>男女平均年薪差 {fmtPercent(Math.abs(overallGap), 1)}</>}
       lede={
         <>
-          女性 {fmtInt(gender.female.headcount)} 人，平均 {fmtMoney(gender.female.avgSalary)}；
-          男性 {fmtInt(gender.male.headcount)} 人，平均 {fmtMoney(gender.male.avgSalary)}。
-          拆到职衔内部也一样，差距最大的一项只有 {fmtPercent(worstGap, 1)}。
+          女性 {fmtInt(gender.female.headcount)} 人平均 {fmtMoney(gender.female.avgSalary)}，
+          男性 {fmtInt(gender.male.headcount)} 人平均 {fmtMoney(gender.male.avgSalary)}；
+          拆到职衔内部最大也只有 {fmtPercent(worstGap, 1)}。
         </>
       }
     >
@@ -271,7 +246,7 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
             <Th align="right">人数</Th>
             <Th align="right">平均年薪</Th>
             <Th className="hidden w-[24%] sm:table-cell">最低 – 最高</Th>
-            <Th align="right">女性</Th>
+            <Th align="right">女性占比</Th>
           </tr>
         </thead>
         <tbody>
@@ -300,9 +275,6 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
           ))}
         </tbody>
       </table>
-      <Caption>
-        竖线为中位数；整体女性占 {fmtPercent(femaleShare)}
-      </Caption>
     </Section>
   )
 }
@@ -314,9 +286,6 @@ function Titles({ dashboard }: { dashboard: Dashboard }) {
 function TopEarners({ dashboard }: { dashboard: Dashboard }) {
   const { topEarners, totals } = dashboard
   const first = topEarners[0]
-  const last = topEarners[topEarners.length - 1]
-  const overMedian =
-    totals.medianSalary > 0 ? (first?.salary ?? 0) / totals.medianSalary - 1 : 0
 
   // 十人往往同职衔同部门，那就说一次，不必每行重复。
   const uniform =
@@ -337,11 +306,15 @@ function TopEarners({ dashboard }: { dashboard: Dashboard }) {
           <>
             {uniform ? (
               <>
-                十人都在 {first.department}。{' '}
+                十人都在 {first.department}，比中位数高出{' '}
+                {fmtPercent((first.salary / Math.max(totals.medianSalary, 1)) - 1)}。
               </>
-            ) : null}
-            第 1 名 {first.name} 年薪 {fmtMoney(first.salary)}，比中位数高出{' '}
-            {fmtPercent(overMedian)}；第 10 名 {fmtMoney(last?.salary ?? 0)}。
+            ) : (
+              <>
+                第 1 名 {first.name} 比中位数高出{' '}
+                {fmtPercent((first.salary / Math.max(totals.medianSalary, 1)) - 1)}。
+              </>
+            )}
           </>
         ) : null
       }

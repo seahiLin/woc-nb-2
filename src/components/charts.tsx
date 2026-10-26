@@ -61,8 +61,8 @@ export const fmtDate = (value: string): string => {
 /* ------------------------------------------------------------------ */
 
 /**
- * 一节 = 一条结论 + 一句话 + 一块图。
- * 不加栏目名、不加编号：标题本身就是结论，再加一层小标签只是在重复。
+ * 一节 = 一条结论 + 一句补充 + 一块图。
+ * 标题和补充说的不是同一件事：标题给结论，补充给它比不上的信息。
  */
 export function Section({
   title,
@@ -74,21 +74,16 @@ export function Section({
   children: ReactNode
 }) {
   return (
-    <section className="mt-14 border-t border-rule pt-10 sm:mt-16 sm:pt-12">
+    <section className="mt-16 border-t border-rule pt-10 sm:mt-20 sm:pt-12">
       <h2 className="max-w-[15em] text-[24px] leading-[1.36] font-medium tracking-[-0.01em] text-balance sm:text-[27px]">
         {title}
       </h2>
       {lede ? (
-        <p className="mt-4 max-w-[58ch] text-[15.5px] leading-[1.85] text-ink-soft">{lede}</p>
+        <p className="mt-3 max-w-[56ch] text-[15px] leading-[1.8] text-ink-soft">{lede}</p>
       ) : null}
       <div className="mt-9">{children}</div>
     </section>
   )
-}
-
-/** 图注：说明怎么读，不解释为什么这么画。 */
-export function Caption({ children }: { children: ReactNode }) {
-  return <p className="mt-3.5 font-sans text-[11.5px] leading-relaxed text-ink-faint">{children}</p>
 }
 
 /* ------------------------------------------------------------------ */
