@@ -210,6 +210,17 @@ export function DepartmentBars({
 
   return (
     <div>
+      {/* 轴上方的刻度：左端 −$X，右端 +$X，读者才知道条形量的是多大差距 */}
+      <div className="mb-1.5 grid grid-cols-[5.5rem_1fr_4.5rem] items-end gap-x-3 font-sans text-[10.5px] text-ink-faint sm:grid-cols-[7.5rem_1fr_5.5rem] sm:gap-x-4">
+        <span />
+        <div className="flex justify-between">
+          <span>−{fmtMoneyShort(widest)}</span>
+          <span className="text-ledger">平均 {fmtMoneyShort(average)}</span>
+          <span>+{fmtMoneyShort(widest)}</span>
+        </div>
+        <span />
+      </div>
+
       {rows.map((row) => {
         const delta = row.avgSalary - average
         const above = delta >= 0
@@ -217,24 +228,27 @@ export function DepartmentBars({
         return (
           <div
             key={row.id}
-            className="grid grid-cols-[1fr_5.5rem] items-center gap-x-4 border-b border-rule/70 py-2.5 last:border-0 sm:grid-cols-[7.5rem_1fr_5.5rem]"
+            className="grid grid-cols-[5.5rem_1fr_4.5rem] items-center gap-x-3 border-b border-rule/70 py-2.5 last:border-0 sm:grid-cols-[7.5rem_1fr_5.5rem] sm:gap-x-4"
           >
-            <span className="truncate text-[15px]">{row.name}</span>
+            <span className="truncate text-[14px] sm:text-[15px]">{row.name}</span>
 
-            <div className="relative order-last col-span-2 h-[14px] sm:order-none sm:col-span-1">
-              <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-ledger" />
+            {/* 轨道只有 12px 高，中轴线露出上下两头，不会被条形盖掉 */}
+            <div className="relative h-[12px]">
+              <span className="absolute top-0 bottom-0 left-1/2 w-px -translate-x-1/2 bg-ledger/70" />
               <span
-                className={`absolute top-1/2 h-[14px] -translate-y-1/2 ${
-                  above ? 'bg-ink/80' : 'bg-ink/25'
+                className={`absolute top-1/2 h-[7px] -translate-y-1/2 ${
+                  above ? 'bg-ink/80' : 'bg-ink/30'
                 }`}
                 style={{
                   left: above ? '50%' : `${50 - width}%`,
-                  width: `${Math.max(width, 0.7)}%`,
+                  width: `${Math.max(width, 0.5)}%`,
                 }}
               />
             </div>
 
-            <span className="text-right text-[15px] tabular">{fmtMoney(row.avgSalary)}</span>
+            <span className="text-right text-[13.5px] tabular sm:text-[15px]">
+              {fmtMoney(row.avgSalary)}
+            </span>
           </div>
         )
       })}

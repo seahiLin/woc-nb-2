@@ -121,7 +121,7 @@ function Opening({ dashboard }: { dashboard: Dashboard }) {
       </h1>
 
       <p className="mt-4 max-w-[52ch] text-[15.5px] leading-[1.85] text-ink-soft">
-        中位 {fmtMoney(totals.medianSalary)}，均值 {fmtMoney(totals.avgSalary)}——
+        中位 {fmtMoney(totals.medianSalary)}，均值 {fmtMoney(totals.avgSalary)}。
         右边那条长尾把均值抬了起来。给得最多的是 {highest?.name}，平均{' '}
         {fmtMoney(highest?.avgSalary ?? 0)}。
       </p>
@@ -133,15 +133,10 @@ function Opening({ dashboard }: { dashboard: Dashboard }) {
           p25={totals.p25Salary}
           p75={totals.p75Salary}
         />
-        <figcaption className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1 font-sans text-[11.5px] text-ink-faint">
-          <span>深色为中间半数</span>
-          <span>红线为中位数</span>
-        </figcaption>
       </figure>
 
-      <dl className="mt-12 grid grid-cols-2 gap-y-6 border-t border-rule pt-6 sm:grid-cols-4">
+      <dl className="mt-10 flex flex-wrap gap-x-10 gap-y-4 border-t border-rule pt-5">
         <Figure label="累计雇员" value={fmtInt(totals.employees)} />
-        <Figure label="部门" value={fmtInt(totals.departments)} />
         <Figure label="平均司龄" value={`${totals.avgTenureYears} 年`} />
         <Figure
           label="年薪区间"
@@ -154,9 +149,9 @@ function Opening({ dashboard }: { dashboard: Dashboard }) {
 
 function Figure({ label, value }: { label: string; value: string }) {
   return (
-    <div>
-      <dt className="font-sans text-[11px] tracking-[0.04em] text-ink-faint">{label}</dt>
-      <dd className="mt-1 text-[19px] tabular">{value}</dd>
+    <div className="flex items-baseline gap-2">
+      <dt className="font-sans text-[11.5px] text-ink-faint">{label}</dt>
+      <dd className="text-[15px] tabular">{value}</dd>
     </div>
   )
 }
@@ -198,7 +193,7 @@ function Departments({ dashboard }: { dashboard: Dashboard }) {
     >
       <DepartmentBars rows={bySalary} average={totals.avgSalary} />
       <Caption>
-        红线是全员平均 {fmtMoney(totals.avgSalary)}，条形是各部门与它的距离
+        条形是各部门与红线（全员平均）的距离
       </Caption>
     </Section>
   )
