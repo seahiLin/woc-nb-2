@@ -167,7 +167,7 @@ function Departments({ dashboard }: { dashboard: Dashboard }) {
       }
       lede={
         <>
-          但 {highest?.name} 人数只排第{' '}
+          给得最多的 {highest?.name} 人数只排第{' '}
           {bySalary.length - bySalary.findIndex((d) => d.id === highest?.id)}；人最多的{' '}
           {biggest?.name}（{fmtInt(biggest?.headcount ?? 0)} 人）薪酬排第 {biggestRank}。
         </>
@@ -194,7 +194,7 @@ function Hiring({ dashboard }: { dashboard: Dashboard }) {
       lede={
         <>
           高峰是 {peak?.year} 年的 {fmtInt(peak?.hired ?? 0)} 人。但招进来的人留得住：
-          {first?.year} 年入职的那一批，至今仍有{' '}
+          {first?.year} 年入职的那一批仍有{' '}
           {fmtPercent((first?.active ?? 0) / Math.max(first?.hired ?? 1, 1))} 在职。
         </>
       }
@@ -375,14 +375,14 @@ function Lookup() {
   }, [term, fetchEmployees])
 
   return (
-    <Section title={<>查一个人</>} lede="按工号精确查，或按姓、名的片段模糊查。">
+    <Section title={<>查一个人</>}>
       <div className="relative max-w-[360px]">
         <input
           ref={inputRef}
           value={term}
           onChange={(event) => setTerm(event.target.value)}
           placeholder="工号、姓或名"
-          aria-label="按工号、姓或名检索员工"
+          aria-label="按工号、姓或名查员工"
           className="w-full border-b border-rule-strong bg-transparent py-2 pr-7 font-sans text-[13.5px] outline-none transition placeholder:text-ink-faint focus:border-ink"
         />
         {term ? (
