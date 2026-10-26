@@ -1,18 +1,27 @@
 /**
- * 看板的所有 SQL（服务端专用）。
+ * 看板的所有查询 —— 全部用 Drizzle 写。
  *
- * 全部针对 Neon 上 `employees` schema 的六张表：
- *   employee / department / department_employee / department_manager / salary / title
+ * 表和列来自 `src/db/schema.ts`（和迁移同一份定义）；聚合、percentile、
+ * 条件计数这类 Drizzle 没有专门 API 的部分用 `sql` 模板补，参数仍然走占位符。
  *
  * 口径：
  *   * `to_date = '9999-01-01'` 表示“当前有效”。
- *   * 数据集的时间基准取薪资历史里最后一个真实结束日（约 2002-08-01），
- *     不写死 —— 换一份数据集也能自动对上。
- *   * 同一个员工在同一时点只有一条当前职衔、一条当前部门任职、一条当前薪资，
- *     所以这些 join 不会放大行数。
+ *   * 时间基准取薪资历史里最后一个真实结束日的次日，不写死。
+ *   * 同一员工在同一时点只有一条当前职级/部门/薪资，join 不会放大行数。
  */
 
-import { databaseName, query, readOnlyBatch } from './neon.server'
+import { and, asc, count, desc, eq, ne, sql } from 'drizzle-orm'
+import type { SQL } from 'drizzle-orm'
+import {
+  department,
+  departmentEmployee,
+  departmentManager,
+  employee,
+  salary,
+  title,
+} from '../db/schema'
+import type { Queryable } from './neon.server'
+import { withDb } from './neon.server'
 import type {
   Dashboard,
   DepartmentStat,
@@ -22,326 +31,19 @@ import type {
   SalaryBucket,
   TitleStat,
   TopEarner,
-  TrendPoint,
 } from './dashboard-types'
 
-const CURRENT = `'9999-01-01'`
+/** 当前有效的日期哨兵值。 */
+const CURRENT = sql`'9999-01-01'::date`
 
-/**
- * 汇总 + 基准日。
- *
- * `as_of` 取薪资历史里最后一个真实结束日的次日（本数据集是 2002-08-02），
- * 不写死，换一份数据集也能自动对上。司龄也是相对这一天算的。
- */
-const TOTALS_QUERY = `
-  with cur_salary as (
-    select employee_id, amount from employees.salary where to_date = ${CURRENT}
-  ),
-  cur_dept as (
-    select employee_id, department_id from employees.department_employee where to_date = ${CURRENT}
-  ),
-  as_of as (
-    select (max(to_date) + 1)::date as d from employees.salary where to_date <> ${CURRENT}
-  )
-  select
-    (select count(*) from employees.employee)::int                        as employees,
-    (select count(*) from cur_dept)::int                                  as active_employees,
-    (select count(*) from employees.department)::int                      as departments,
-    (select count(*) from employees.salary)::int                          as salary_records,
-    (select count(*) from employees.title)::int                           as title_records,
-    (select count(*) from employees.department_employee)::int             as assignment_records,
-    (select count(*) from employees.department_manager)::int              as manager_records,
-    (select round(avg(amount)) from cur_salary)::int                      as avg_salary,
-    (select round(percentile_cont(0.5) within group (order by amount)) from cur_salary)::int as median_salary,
-    (select round(percentile_cont(0.25) within group (order by amount)) from cur_salary)::int as p25_salary,
-    (select round(percentile_cont(0.75) within group (order by amount)) from cur_salary)::int as p75_salary,
-    (select min(amount) from cur_salary)::int                             as min_salary,
-    (select max(amount) from cur_salary)::int                             as max_salary,
-    (select min(hire_date)::text from employees.employee)                 as first_hire,
-    (select max(hire_date)::text from employees.employee)                 as last_hire,
-    (select round(avg((a.d - e.hire_date) / 365.25))
-       from employees.employee e
-       join cur_dept cd on cd.employee_id = e.id
-       cross join as_of a)::int                                           as avg_tenure_years,
-    (select d::text from as_of)                                           as as_of,
-    current_database()                                                    as database_name
-`
-
-/**
- * 薪资分布：$40K 起、每 $5K 一档，最后一档兜住所有 $120K 以上。
- * 用手写区间而不是 width_bucket，是为了让横轴标签是整数好读。
- */
-const DISTRIBUTION_QUERY = `
-  with binned as (
-    select case
-             when amount >= 120000 then 120000
-             else (floor(amount / 5000.0) * 5000)::int
-           end as bucket_from
-    from employees.salary
-    where to_date = ${CURRENT}
-  )
-  select bucket_from::int as from_usd, count(*)::int as n
-  from binned
-  group by 1
-  order by 1
-`
-
-/**
- * 招聘与留存：每年招了多少人，其中多少人到今天还在职。
- * 这是整个数据集最有信息量的一张图 —— 招得越晚，留下的越少。
- */
-const RETENTION_QUERY = `
-  with cur_dept as (
-    select employee_id from employees.department_employee where to_date = ${CURRENT}
-  )
-  select
-    extract(year from e.hire_date)::int as year,
-    count(*)::int as hired,
-    count(d.employee_id)::int as active
-  from employees.employee e
-  left join cur_dept d on d.employee_id = e.id
-  group by 1
-  order by 1
-`
-
-const DEPARTMENTS_QUERY = `
-  with cur_dept as (
-    select employee_id, department_id from employees.department_employee where to_date = ${CURRENT}
-  ),
-  cur_salary as (
-    select employee_id, amount from employees.salary where to_date = ${CURRENT}
-  ),
-  cur_mgr as (
-    select dm.department_id, dm.employee_id, dm.from_date
-    from employees.department_manager dm
-    where dm.to_date = ${CURRENT}
-  ),
-  dept_stats as (
-    select
-      d.id,
-      d.dept_name as name,
-      count(cd.employee_id)::int as headcount,
-      round(avg(s.amount))::int as avg_salary,
-      round(percentile_cont(0.5) within group (order by s.amount))::int as median_salary,
-      min(s.amount)::int as min_salary,
-      max(s.amount)::int as max_salary,
-      (count(*) filter (where e.gender = 'F'))::numeric
-        / nullif(count(cd.employee_id), 0) as female_share
-    from employees.department d
-    left join cur_dept cd on cd.department_id = d.id
-    left join employees.employee e on e.id = cd.employee_id
-    left join cur_salary s on s.employee_id = cd.employee_id
-    group by d.id, d.dept_name
-  ),
-  dept_mgr as (
-    select
-      m.department_id,
-      e.first_name || ' ' || e.last_name as name,
-      m.from_date::text as since,
-      s.amount::int as salary
-    from cur_mgr m
-    join employees.employee e on e.id = m.employee_id
-    left join cur_salary s on s.employee_id = m.employee_id
-  )
-  select
-    st.id, st.name, st.headcount, st.avg_salary, st.median_salary,
-    st.min_salary, st.max_salary, round(st.female_share, 3) as female_share,
-    mg.name as manager_name, mg.since as manager_since, mg.salary as manager_salary,
-    (select count(*) from cur_dept)::int as active_total
-  from dept_stats st
-  left join dept_mgr mg on mg.department_id = st.id
-  order by st.headcount desc
-`
-
-const TITLES_QUERY = `
-  with cur_salary as (
-    select employee_id, amount from employees.salary where to_date = ${CURRENT}
-  )
-  select
-    t.title,
-    count(*)::int as headcount,
-    round(avg(s.amount))::int as avg_salary,
-    round(percentile_cont(0.5) within group (order by s.amount))::int as median_salary,
-    min(s.amount)::int as min_salary,
-    max(s.amount)::int as max_salary,
-    (count(*) filter (where e.gender = 'F'))::numeric / nullif(count(*), 0) as female_share,
-    round(avg(s.amount) filter (where e.gender = 'M'))::int as male_avg,
-    round(avg(s.amount) filter (where e.gender = 'F'))::int as female_avg
-  from employees.title t
-  join cur_salary s on s.employee_id = t.employee_id
-  join employees.employee e on e.id = t.employee_id
-  where t.to_date = ${CURRENT}
-  group by t.title
-  order by headcount desc
-`
-
-const GENDER_QUERY = `
-  with cur_salary as (
-    select employee_id, amount from employees.salary where to_date = ${CURRENT}
-  )
-  select
-    e.gender,
-    count(*)::int as headcount,
-    round(avg(s.amount))::int as avg_salary,
-    round(percentile_cont(0.5) within group (order by s.amount))::int as median_salary
-  from cur_salary s
-  join employees.employee e on e.id = s.employee_id
-  group by e.gender
-`
-
-const TREND_QUERY = `
-  select
-    extract(year from from_date)::int as year,
-    round(avg(amount))::int as avg_salary,
-    count(*)::int as n
-  from employees.salary
-  group by 1
-  order by 1
-`
-
-const TOP_EARNERS_QUERY = `
-  with cur_salary as (
-    select employee_id, amount from employees.salary where to_date = ${CURRENT}
-  )
-  select
-    e.id::text as id,
-    e.first_name || ' ' || e.last_name as name,
-    t.title,
-    d.dept_name as department,
-    s.amount::int as salary,
-    e.hire_date::text as hire_date
-  from cur_salary s
-  join employees.employee e on e.id = s.employee_id
-  left join employees.title t on t.employee_id = e.id and t.to_date = ${CURRENT}
-  left join employees.department_employee de on de.employee_id = e.id and de.to_date = ${CURRENT}
-  left join employees.department d on d.id = de.department_id
-  order by s.amount desc
-  limit 10
-`
-
-/**
- * 员工检索。`$1` 是精确工号，`$2` 是姓名模糊匹配。
- * 先把候选集缩到 26 条（多取一条用于判断是否截断），再回表取当前职衔/部门/薪资。
- */
-export const EMPLOYEE_SEARCH_SQL = `
-  with hits as (
-    select e.id, e.first_name, e.last_name, e.gender, e.hire_date
-    from employees.employee e
-    where e.id::text = $1
-       or e.first_name ilike $2
-       or e.last_name ilike $2
-    order by e.id
-    limit 26
-  )
-  select
-    h.id::text as id,
-    h.first_name || ' ' || h.last_name as name,
-    h.gender,
-    t.title,
-    d.dept_name as department,
-    s.amount::int as salary,
-    h.hire_date::text as hire_date
-  from hits h
-  left join employees.title t on t.employee_id = h.id and t.to_date = ${CURRENT}
-  left join employees.department_employee de on de.employee_id = h.id and de.to_date = ${CURRENT}
-  left join employees.department d on d.id = de.department_id
-  left join employees.salary s on s.employee_id = h.id and s.to_date = ${CURRENT}
-  order by h.id
-`
-
-/* ------------------------------------------------------------------ */
-/* 行类型                                                              */
-/* ------------------------------------------------------------------ */
-
-interface TotalsRow {
-  employees: number
-  active_employees: number
-  departments: number
-  salary_records: number
-  title_records: number
-  assignment_records: number
-  manager_records: number
-  avg_salary: number
-  median_salary: number
-  p25_salary: number
-  p75_salary: number
-  min_salary: number
-  max_salary: number
-  first_hire: string
-  last_hire: string
-  avg_tenure_years: number
-  as_of: string
-  database_name: string
-}
-
-interface DistributionRow {
-  from_usd: number
-  n: number
-}
-
-interface RetentionRow {
-  year: number
-  hired: number
-  active: number
-}
-
-interface DepartmentRow {
-  id: string
-  name: string
-  headcount: number
-  avg_salary: number
-  median_salary: number
-  min_salary: number
-  max_salary: number
-  female_share: number | null
-  manager_name: string | null
-  manager_since: string | null
-  manager_salary: number | null
-  active_total: number
-}
-
-interface TitleRow {
-  title: string
-  headcount: number
-  avg_salary: number
-  median_salary: number
-  min_salary: number
-  max_salary: number
-  female_share: number | null
-  male_avg: number | null
-  female_avg: number | null
-}
-
-interface GenderRow {
-  gender: 'M' | 'F'
-  headcount: number
-  avg_salary: number
-  median_salary: number
-}
-
-interface TrendRow {
-  year: number
-  avg_salary: number
-  n: number
-}
-
-interface TopEarnerRow {
-  id: string
-  name: string
-  title: string | null
-  department: string | null
-  salary: number
-  hire_date: string
-}
-
+/** pg 把 count / bigint 解成字符串，这里统一转成 number。 */
 const num = (value: unknown): number => {
-  // pg 把 `count(*)`（int8）和 `numeric` 解成字符串，避免大数丢精度；
-  // 看板这里的量级远低于 2^53，直接转 number 即可。
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-const str = (value: unknown): string => (value === null || value === undefined ? '' : String(value))
+const str = (value: unknown): string =>
+  value === null || value === undefined ? '' : String(value)
 
 /** pg 的 numeric 到 0–1 比例，null 归零。 */
 const ratio = (value: unknown): number => {
@@ -349,17 +51,11 @@ const ratio = (value: unknown): number => {
   return Number.isFinite(parsed) ? Math.min(Math.max(parsed, 0), 1) : 0
 }
 
-const group = (row: GenderRow | undefined): GenderGroup => ({
-  headcount: num(row?.headcount),
-  avgSalary: num(row?.avg_salary),
-  medianSalary: num(row?.median_salary),
-})
-
 /** 把稀疏的分档结果补齐成连续区间，图表才不会缺柱子。 */
-function fillBuckets(rows: DistributionRow[]): SalaryBucket[] {
+function fillBuckets(rows: Array<{ bucket: unknown; n: unknown }>): SalaryBucket[] {
   if (rows.length === 0) return []
   const counts = new Map<number, number>()
-  for (const row of rows) counts.set(num(row.from_usd), num(row.n))
+  for (const row of rows) counts.set(num(row.bucket), num(row.n))
 
   const min = Math.min(...counts.keys())
   const max = Math.max(...counts.keys())
@@ -371,148 +67,423 @@ function fillBuckets(rows: DistributionRow[]): SalaryBucket[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* 组装                                                                */
+/* 可复用的子查询                                                       */
+/* ------------------------------------------------------------------ */
+
+/** 当前有效的薪资（每人一条）。 */
+const currentSalary = (db: Queryable) =>
+  db
+    .select({ employeeId: salary.employeeId, amount: salary.amount })
+    .from(salary)
+    .where(eq(salary.toDate, CURRENT))
+    .as('cur_salary')
+
+/** 当前有效的部门任职（每人一条）。 */
+const currentAssignment = (db: Queryable) =>
+  db
+    .select({
+      employeeId: departmentEmployee.employeeId,
+      departmentId: departmentEmployee.departmentId,
+    })
+    .from(departmentEmployee)
+    .where(eq(departmentEmployee.toDate, CURRENT))
+    .as('cur_dept')
+
+/** 全名（原数据集拆成 first/last 两列）。 */
+const fullName = sql<string>`${employee.firstName} || ' ' || ${employee.lastName}`
+
+/* ------------------------------------------------------------------ */
+/* 各切片                                                              */
 /* ------------------------------------------------------------------ */
 
 /**
- * 一次只读事务，把看板需要的所有切片都取回来。
- * 所有语句同一口径，走同一条连接。
+ * 数据集的时间基准：薪资历史里最后一个真实结束日的次日。
+ * 用作 date，因为司龄要用它做日期算术。
  */
-export async function loadDashboard(connectionString: string): Promise<Dashboard> {
-  const [totalsRows, distributionRows, retentionRows, departmentRows, titleRows, genderRows, trendRows, topEarnerRows] =
-    (await readOnlyBatch(connectionString, [
-      TOTALS_QUERY,
-      DISTRIBUTION_QUERY,
-      RETENTION_QUERY,
-      DEPARTMENTS_QUERY,
-      TITLES_QUERY,
-      GENDER_QUERY,
-      TREND_QUERY,
-      TOP_EARNERS_QUERY,
-    ])) as unknown as [
-      TotalsRow[],
-      DistributionRow[],
-      RetentionRow[],
-      DepartmentRow[],
-      TitleRow[],
-      GenderRow[],
-      TrendRow[],
-      TopEarnerRow[],
-    ]
+const asOfDate = sql`(
+  select (max(${salary.toDate}) + 1)::date from ${salary} where ${ne(salary.toDate, CURRENT)}
+)`
 
-  const totalsRow = totalsRows[0]
-  if (!totalsRow) throw new Error('Neon 没有返回汇总行')
+/** 执行一段原始 SQL 并拿到行。neon-serverless 返回 QueryResult，这里兼容两种形态。 */
+async function rawRows<T>(db: Queryable, query: SQL): Promise<T[]> {
+  const result = await db.execute(query)
+  const maybe = result as unknown as { rows?: T[] }
+  return Array.isArray(maybe.rows) ? maybe.rows : (result as unknown as T[])
+}
 
-  const asOf = str(totalsRow.as_of).slice(0, 10)
-  const activeTotal = num(departmentRows[0]?.active_total)
-  const male = group(genderRows.find((row) => row.gender === 'M'))
-  const female = group(genderRows.find((row) => row.gender === 'F'))
+/** 汇总行（列名是 SQL 里的 snake_case）。 */
+type TotalsRow = {
+  employees: number
+  active_employees: number
+  departments: number
+  avg_salary: number
+  median_salary: number
+  p25_salary: number
+  p75_salary: number
+  min_salary: number
+  max_salary: number
+  avg_tenure_years: number
+  as_of: string
+}
 
-  return {
-    generatedAt: new Date().toISOString(),
-    source: 'neon',
-    database: str(totalsRow.database_name) || databaseName(connectionString),
-    asOf,
-    totals: {
-      employees: num(totalsRow.employees),
-      activeEmployees: num(totalsRow.active_employees),
-      departments: num(totalsRow.departments),
-      salaryRecords: num(totalsRow.salary_records),
-      titleRecords: num(totalsRow.title_records),
-      assignmentRecords: num(totalsRow.assignment_records),
-      managerRecords: num(totalsRow.manager_records),
-      avgSalary: num(totalsRow.avg_salary),
-      medianSalary: num(totalsRow.median_salary),
-      p25Salary: num(totalsRow.p25_salary),
-      p75Salary: num(totalsRow.p75_salary),
-      minSalary: num(totalsRow.min_salary),
-      maxSalary: num(totalsRow.max_salary),
-      firstHire: str(totalsRow.first_hire),
-      lastHire: str(totalsRow.last_hire),
-      avgTenureYears: num(totalsRow.avg_tenure_years),
-    },
-    distribution: {
-      buckets: fillBuckets(distributionRows),
-      median: num(totalsRow.median_salary),
-      mean: num(totalsRow.avg_salary),
-    },
-    retention: retentionRows.map<RetentionYear>((row) => ({
-      year: num(row.year),
-      hired: num(row.hired),
-      active: num(row.active),
-    })),
-    departments: departmentRows.map<DepartmentStat>((row) => ({
+async function loadTotals(db: Queryable) {
+  const result = await rawRows<TotalsRow>(
+    db,
+    sql`
+      with cur_salary as (
+        select ${salary.amount} as amount from ${salary} where ${eq(salary.toDate, CURRENT)}
+      ),
+      cur_dept as (
+        select ${departmentEmployee.employeeId} as employee_id
+        from ${departmentEmployee}
+        where ${eq(departmentEmployee.toDate, CURRENT)}
+      ),
+      as_of as (${asOfDate})
+      select
+        (select count(*) from ${employee})::int as employees,
+        (select count(*) from cur_dept)::int as active_employees,
+        (select count(*) from ${department})::int as departments,
+        (select round(avg(amount)) from cur_salary)::int as avg_salary,
+        (select round(percentile_cont(0.5) within group (order by amount))
+          from cur_salary)::int as median_salary,
+        (select round(percentile_cont(0.25) within group (order by amount))
+          from cur_salary)::int as p25_salary,
+        (select round(percentile_cont(0.75) within group (order by amount))
+          from cur_salary)::int as p75_salary,
+        (select min(amount) from cur_salary)::int as min_salary,
+        (select max(amount) from cur_salary)::int as max_salary,
+        (select round(avg(((select * from as_of) - ${employee.hireDate}) / 365.25))
+           from ${employee}
+           join cur_dept on cur_dept.employee_id = ${employee.id})::int as avg_tenure_years,
+        (select * from as_of)::text as as_of
+    `,
+  )
+
+  const row = result[0]
+  if (!row) throw new Error('数据库没有返回汇总行')
+  return row
+}
+
+/**
+ * 薪资分布：$5K 一档，最后一档兜住所有 $120K 以上。
+ * 用手写区间而不是 width_bucket，是为了让横轴标签是整数好读。
+ */
+async function loadDistribution(db: Queryable) {
+  const bucket = sql<number>`case
+    when ${salary.amount} >= 120000 then 120000
+    else (floor(${salary.amount} / 5000.0) * 5000)::int
+  end`
+
+  return db
+    .select({ bucket, n: count() })
+    .from(salary)
+    .where(eq(salary.toDate, CURRENT))
+    .groupBy(bucket)
+    .orderBy(asc(bucket))
+}
+
+/**
+ * 招聘与留存：每年招了多少人，其中多少人到今天还在职。
+ * 这是整个数据集最有信息量的一张图 —— 招得越晚，留下的越少。
+ */
+async function loadRetention(db: Queryable) {
+  const curDept = currentAssignment(db)
+  const year = sql<number>`extract(year from ${employee.hireDate})::int`
+
+  return db
+    .select({
+      year,
+      hired: count(),
+      active: sql<number>`count(${curDept.employeeId})::int`,
+    })
+    .from(employee)
+    .leftJoin(curDept, eq(curDept.employeeId, employee.id))
+    .groupBy(year)
+    .orderBy(asc(year))
+}
+
+async function loadDepartments(db: Queryable) {
+  const curDept = currentAssignment(db)
+  const curSalary = currentSalary(db)
+  const curManager = db
+    .select({
+      departmentId: departmentManager.departmentId,
+      employeeId: departmentManager.employeeId,
+      fromDate: departmentManager.fromDate,
+    })
+    .from(departmentManager)
+    .where(eq(departmentManager.toDate, CURRENT))
+    .as('cur_mgr')
+
+  // 经理是“每部门一条”的独立维度，单独查出来再在 JS 里合并，
+  // 免得把它 join 进主聚合后放大行数。
+  const managers = await db
+    .select({
+      departmentId: curManager.departmentId,
+      name: fullName,
+      since: sql<string>`${curManager.fromDate}::text`,
+      salary: sql<number | null>`${curSalary.amount}::int`,
+    })
+    .from(curManager)
+    .innerJoin(employee, eq(employee.id, curManager.employeeId))
+    .leftJoin(curSalary, eq(curSalary.employeeId, curManager.employeeId))
+
+  const rows = await db
+    .select({
+      id: department.id,
+      name: department.deptName,
+      headcount: sql<number>`count(${curDept.employeeId})::int`,
+      avgSalary: sql<number>`round(avg(${curSalary.amount}))::int`,
+      medianSalary: sql<number>`round(percentile_cont(0.5) within group (order by ${curSalary.amount}))::int`,
+      minSalary: sql<number>`min(${curSalary.amount})::int`,
+      maxSalary: sql<number>`max(${curSalary.amount})::int`,
+      femaleShare: sql<number>`round(
+        (count(*) filter (where ${employee.gender} = 'F'))::numeric
+        / nullif(count(${curDept.employeeId}), 0), 3)`,
+    })
+    .from(department)
+    .leftJoin(curDept, eq(curDept.departmentId, department.id))
+    .leftJoin(employee, eq(employee.id, curDept.employeeId))
+    .leftJoin(curSalary, eq(curSalary.employeeId, curDept.employeeId))
+    .groupBy(department.id, department.deptName)
+    .orderBy(desc(sql`count(${curDept.employeeId})`))
+
+  const activeTotal = rows.reduce((sum, row) => sum + num(row.headcount), 0)
+  const managerByDept = new Map(managers.map((row) => [str(row.departmentId), row]))
+
+  return rows.map<DepartmentStat>((row) => {
+    const manager = managerByDept.get(str(row.id))
+    return {
       id: str(row.id),
       name: str(row.name),
       headcount: num(row.headcount),
       share: activeTotal > 0 ? num(row.headcount) / activeTotal : 0,
-      avgSalary: num(row.avg_salary),
-      medianSalary: num(row.median_salary),
-      minSalary: num(row.min_salary),
-      maxSalary: num(row.max_salary),
-      femaleShare: ratio(row.female_share),
-      manager: row.manager_name
+      avgSalary: num(row.avgSalary),
+      medianSalary: num(row.medianSalary),
+      minSalary: num(row.minSalary),
+      maxSalary: num(row.maxSalary),
+      femaleShare: ratio(row.femaleShare),
+      manager: manager
         ? {
-            name: str(row.manager_name),
-            since: str(row.manager_since).slice(0, 10),
-            salary: num(row.manager_salary),
+            name: str(manager.name),
+            since: str(manager.since).slice(0, 10),
+            salary: num(manager.salary),
           }
         : null,
-    })),
-    titles: titleRows.map<TitleStat>((row) => ({
-      title: str(row.title),
-      headcount: num(row.headcount),
-      avgSalary: num(row.avg_salary),
-      medianSalary: num(row.median_salary),
-      minSalary: num(row.min_salary),
-      maxSalary: num(row.max_salary),
-      femaleShare: ratio(row.female_share),
-      maleAvg: num(row.male_avg),
-      femaleAvg: num(row.female_avg),
-    })),
-    gender: { male, female },
-    salaryTrend: trendRows.map<TrendPoint>((row) => ({
-      year: num(row.year),
-      avgSalary: num(row.avg_salary),
-      records: num(row.n),
-    })),
-    topEarners: topEarnerRows.map<TopEarner>((row) => ({
-      id: str(row.id),
-      name: str(row.name),
-      title: row.title ? str(row.title) : null,
-      department: row.department ? str(row.department) : null,
-      salary: num(row.salary),
-      hireDate: str(row.hire_date).slice(0, 10),
-    })),
+    }
+  })
+}
+
+async function loadTitles(db: Queryable) {
+  const curSalary = currentSalary(db)
+
+  const rows = await db
+    .select({
+      title: title.title,
+      headcount: count(),
+      avgSalary: sql<number>`round(avg(${curSalary.amount}))::int`,
+      medianSalary: sql<number>`round(percentile_cont(0.5) within group (order by ${curSalary.amount}))::int`,
+      minSalary: sql<number>`min(${curSalary.amount})::int`,
+      maxSalary: sql<number>`max(${curSalary.amount})::int`,
+      femaleShare: sql<number>`round(
+        (count(*) filter (where ${employee.gender} = 'F'))::numeric / nullif(count(*), 0), 3)`,
+      maleAvg: sql<number | null>`round(avg(${curSalary.amount}) filter (where ${employee.gender} = 'M'))::int`,
+      femaleAvg: sql<number | null>`round(avg(${curSalary.amount}) filter (where ${employee.gender} = 'F'))::int`,
+    })
+    .from(title)
+    .innerJoin(curSalary, eq(curSalary.employeeId, title.employeeId))
+    .innerJoin(employee, eq(employee.id, title.employeeId))
+    .where(eq(title.toDate, CURRENT))
+    .groupBy(title.title)
+    .orderBy(desc(count()))
+
+  return rows.map<TitleStat>((row) => ({
+    title: str(row.title),
+    headcount: num(row.headcount),
+    avgSalary: num(row.avgSalary),
+    medianSalary: num(row.medianSalary),
+    minSalary: num(row.minSalary),
+    maxSalary: num(row.maxSalary),
+    femaleShare: ratio(row.femaleShare),
+    maleAvg: num(row.maleAvg),
+    femaleAvg: num(row.femaleAvg),
+  }))
+}
+
+async function loadGender(db: Queryable) {
+  const curSalary = currentSalary(db)
+
+  const rows = await db
+    .select({
+      gender: employee.gender,
+      headcount: count(),
+      avgSalary: sql<number>`round(avg(${curSalary.amount}))::int`,
+      medianSalary: sql<number>`round(percentile_cont(0.5) within group (order by ${curSalary.amount}))::int`,
+    })
+    .from(curSalary)
+    .innerJoin(employee, eq(employee.id, curSalary.employeeId))
+    .groupBy(employee.gender)
+
+  const toGroup = (row: (typeof rows)[number] | undefined): GenderGroup => ({
+    headcount: num(row?.headcount),
+    avgSalary: num(row?.avgSalary),
+    medianSalary: num(row?.medianSalary),
+  })
+
+  return {
+    male: toGroup(rows.find((row) => row.gender === 'M')),
+    female: toGroup(rows.find((row) => row.gender === 'F')),
   }
 }
 
+async function loadTopEarners(db: Queryable) {
+  const curSalary = currentSalary(db)
+
+  const rows = await db
+    .select({
+      id: sql<string>`${employee.id}::text`,
+      name: fullName,
+      title: title.title,
+      department: department.deptName,
+      salary: sql<number>`${curSalary.amount}::int`,
+      hireDate: sql<string>`${employee.hireDate}::text`,
+    })
+    .from(curSalary)
+    .innerJoin(employee, eq(employee.id, curSalary.employeeId))
+    .leftJoin(title, and(eq(title.employeeId, employee.id), eq(title.toDate, CURRENT)))
+    .leftJoin(
+      departmentEmployee,
+      and(
+        eq(departmentEmployee.employeeId, employee.id),
+        eq(departmentEmployee.toDate, CURRENT),
+      ),
+    )
+    .leftJoin(department, eq(department.id, departmentEmployee.departmentId))
+    .orderBy(desc(curSalary.amount))
+    .limit(10)
+
+  return rows.map<TopEarner>((row) => ({
+    id: str(row.id),
+    name: str(row.name),
+    title: row.title ? str(row.title) : null,
+    department: row.department ? str(row.department) : null,
+    salary: num(row.salary),
+    hireDate: str(row.hireDate).slice(0, 10),
+  }))
+}
+
+/* ------------------------------------------------------------------ */
+/* 组装                                                                */
+/* ------------------------------------------------------------------ */
+
+/** 一次只读事务，把看板需要的所有切片取回来 —— 所有数字来自同一个快照。 */
+export async function loadDashboard(connectionString: string): Promise<Dashboard> {
+  return withDb(connectionString, async (db) =>
+    db.transaction(
+      async (tx) => {
+        // 串行执行：事务固定在同一条连接上，并发只会排队，不省时间，
+        // 而且串行能让 SQL 报错时立刻定位到是哪一段。
+        const totals = await loadTotals(tx)
+        const distribution = await loadDistribution(tx)
+        const retention = await loadRetention(tx)
+        const departments = await loadDepartments(tx)
+        const titles = await loadTitles(tx)
+        const gender = await loadGender(tx)
+        const topEarners = await loadTopEarners(tx)
+
+        return {
+          generatedAt: new Date().toISOString(),
+          asOf: str(totals.as_of).slice(0, 10),
+          totals: {
+            employees: num(totals.employees),
+            activeEmployees: num(totals.active_employees),
+            departments: num(totals.departments),
+            avgSalary: num(totals.avg_salary),
+            medianSalary: num(totals.median_salary),
+            p25Salary: num(totals.p25_salary),
+            p75Salary: num(totals.p75_salary),
+            minSalary: num(totals.min_salary),
+            maxSalary: num(totals.max_salary),
+            avgTenureYears: num(totals.avg_tenure_years),
+          },
+          distribution: {
+            buckets: fillBuckets(distribution),
+            median: num(totals.median_salary),
+            mean: num(totals.avg_salary),
+          },
+          retention: retention.map<RetentionYear>((row) => ({
+            year: num(row.year),
+            hired: num(row.hired),
+            active: num(row.active),
+          })),
+          departments,
+          titles,
+          gender,
+          topEarners,
+        } satisfies Dashboard
+      },
+      { isolationLevel: 'repeatable read', accessMode: 'read only' },
+    ),
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/* 员工检索                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * 员工检索：工号精确匹配，或姓名片段模糊匹配。
+ * 先把候选集缩到 26 条（多取一条用于判断是否截断），再回表取当前职级/部门/薪资。
+ */
 export async function searchEmployees(
   connectionString: string,
   term: string,
 ): Promise<{ rows: EmployeeRow[]; truncated: boolean }> {
-  const trimmed = term.trim()
-  const rows = await query<{
-    id: string
-    name: string
-    gender: 'M' | 'F'
-    title: string | null
-    department: string | null
-    salary: number | null
-    hire_date: string
-  }>(connectionString, EMPLOYEE_SEARCH_SQL, [trimmed, `%${trimmed}%`])
+  return withDb(connectionString, async (db) => {
+    const trimmed = term.trim()
+    const exactId = /^\d+$/.test(trimmed) ? Number(trimmed) : -1
+    const like = `%${trimmed}%`
 
-  const truncated = rows.length > 25
-  return {
-    truncated,
-    rows: rows.slice(0, 25).map<EmployeeRow>((row) => ({
-      id: str(row.id),
-      name: str(row.name),
-      gender: row.gender === 'F' ? 'F' : 'M',
-      title: row.title ? str(row.title) : null,
-      department: row.department ? str(row.department) : null,
-      salary: row.salary === null || row.salary === undefined ? null : num(row.salary),
-      hireDate: str(row.hire_date).slice(0, 10),
-    })),
-  }
+    const rows = await db
+      .select({
+        id: sql<string>`${employee.id}::text`,
+        name: fullName,
+        gender: employee.gender,
+        title: title.title,
+        department: department.deptName,
+        salary: sql<number | null>`${salary.amount}::int`,
+        hireDate: sql<string>`${employee.hireDate}::text`,
+      })
+      .from(employee)
+      .leftJoin(title, and(eq(title.employeeId, employee.id), eq(title.toDate, CURRENT)))
+      .leftJoin(
+        departmentEmployee,
+        and(
+          eq(departmentEmployee.employeeId, employee.id),
+          eq(departmentEmployee.toDate, CURRENT),
+        ),
+      )
+      .leftJoin(department, eq(department.id, departmentEmployee.departmentId))
+      .leftJoin(salary, and(eq(salary.employeeId, employee.id), eq(salary.toDate, CURRENT)))
+      .where(
+        sql`${employee.id} = ${exactId}
+          or ${employee.firstName} ilike ${like}
+          or ${employee.lastName} ilike ${like}`,
+      )
+      .orderBy(asc(employee.id))
+      .limit(26)
+
+    return {
+      truncated: rows.length > 25,
+      rows: rows.slice(0, 25).map<EmployeeRow>((row) => ({
+        id: str(row.id),
+        name: str(row.name),
+        gender: row.gender === 'F' ? 'F' : 'M',
+        title: row.title ? str(row.title) : null,
+        department: row.department ? str(row.department) : null,
+        salary: row.salary === null || row.salary === undefined ? null : num(row.salary),
+        hireDate: str(row.hireDate).slice(0, 10),
+      })),
+    }
+  })
 }

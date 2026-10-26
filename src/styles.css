@@ -1,40 +1,36 @@
 @import "tailwindcss";
 
 /*
- * 设计取向：浅色纸面 + 细线 + 紧凑的无衬线字体 + 等宽数字。
- * 参考的是印刷版分析报告，而不是深色监控大屏。
+ * 取向：一份冻结在 2002 年 8 月的薪资登记册。
  *
- * 颜色全部走语义 token（ink / rule / accent），
- * 这样图表里的 `currentColor` 和 `text-ink-faint` 能自动跟随主题。
+ * 颜色取自打印纸，不是米色：偏冷的浅绿灰底（连续打印纸的那种绿），
+ * 深墨绿近黑的字，以及唯一一个红——它只做「基准线」用：直方图里的
+ * 中位数、部门图里的全员平均。红在哪里出现，哪里就是比较的基准，
+ * 没有别的装饰性用法。
+ *
+ * 字体：全站正文用衬线（Newsreader + 宋体），数字和汉字同一种语气；
+ * 只有极小的标注（栏目名、注脚、输入框）换成无衬线。全站不用等宽字体。
  */
 @theme {
+  --font-serif:
+    "Newsreader", "Songti SC", "SimSun", ui-serif, Georgia, serif;
   --font-sans:
-    "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
-    "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
-  --font-mono:
-    ui-monospace, "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+    "Archivo", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
 
-  /* 纸面 */
-  --color-paper: #faf9f7;
-  --color-paper-raised: #ffffff;
+  /* 纸 */
+  --color-paper: #f0f2ed;
 
-  /* 墨色层级：主文 / 次文 / 弱文 */
-  --color-ink: #16181d;
-  --color-ink-soft: #565b66;
-  --color-ink-faint: #8b909b;
+  /* 墨：主 / 次 / 弱 */
+  --color-ink: #111613;
+  --color-ink-soft: #4b534d;
+  --color-ink-faint: #656e67;
 
-  /* 分隔线 */
-  --color-rule: #e7e4df;
-  --color-rule-strong: #d5d1ca;
+  /* 细线与稍重的分隔线 */
+  --color-rule: #d3d9d0;
+  --color-rule-strong: #aab4a7;
 
-  /* 强调色：只用于“当前值/中位数”这类需要被一眼看到的东西 */
-  --color-accent: #c2410c;
-  --color-accent-soft: #fef3ec;
-
-  /* 状态色 */
-  --color-live: #0f766e;
-  --color-warn: #b45309;
-  --color-danger: #b91c1c;
+  /* 唯一的红，只用于基准线 */
+  --color-ledger: #9e2418;
 }
 
 html {
@@ -42,19 +38,30 @@ html {
 }
 
 body {
-  font-family: var(--font-sans);
-  /* 数字一律等宽，表格和 KPI 才能对齐 */
-  font-feature-settings: "tnum" 1, "cv05" 1;
+  font-family: var(--font-serif);
+  /* 数据页：全站数字等宽，表格和正文里的数才能对齐 */
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   background-color: var(--color-paper);
   color: var(--color-ink);
+  font-size: 16px;
+  line-height: 1.7;
 }
 
-/* 数字类文本统一等宽数字 */
-.tabular {
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum" 1;
+/* 衬线体在浅底上偏细，正文稍微加大一点才站得住 */
+p {
+  text-wrap: pretty;
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--color-ledger) 18%, transparent);
+}
+
+/* 键盘焦点要看得见，但不要默认那种蓝色光晕 */
+:focus-visible {
+  outline: 1.5px solid var(--color-ink);
+  outline-offset: 3px;
 }
 
 /* 极细的滚动条，别抢内容的注意力 */
@@ -77,24 +84,27 @@ body {
   background: transparent;
 }
 
-/* 首屏元素轻微上浮入场，只播一次 */
-@keyframes settle {
+/*
+ * 唯一的一处动效：直方图从基线「打」出来，像绘图仪走纸。
+ * 只播一次，只在首屏，其余元素都不动。
+ */
+@keyframes plot {
   from {
-    opacity: 0;
-    transform: translateY(6px);
+    transform: scaleY(0);
   }
   to {
-    opacity: 1;
-    transform: none;
+    transform: scaleY(1);
   }
 }
 
-.settle {
-  animation: settle 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+.plot {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: plot 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .settle {
+  .plot {
     animation: none;
   }
 }

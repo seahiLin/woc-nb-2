@@ -1,83 +1,102 @@
-# woc-nb-2 · 员工数据分析报告
+# 员工与薪酬 · 数据报告
 
-TanStack Start 应用，跑在 Cloudflare Workers 上。页面是一份关于 Neon Postgres
-`employees` 数据集的**分析报告**（不是那种一屏几十个数字的监控大屏）：规模与薪酬总览、
-薪酬分布、招聘节奏与留存、部门画像、职衔结构与同岗性别差异、薪酬趋势、薪酬最高名单，
-最后带一个直接打库的员工检索。
+一份关于员工数据集的**分析报告**，不是监控大屏：先给结论，再给图，最后能查单个员工。
+跑在 Cloudflare Workers 上（TanStack Start），数据来自 Neon Postgres。
 
-## 数据源
+## 页面结构
 
-- **Neon**（唯一数据源）：库 `neondb`，schema `employees`，六张表 ——
-  `employee` / `department` / `department_employee` / `department_manager` / `salary` / `title`。
-  连接用官方驱动 `@neondatabase/serverless`，走真正的 Postgres 协议（WebSocket 上的
-  `Pool` / `Client`，即 node-postgres 的 API，而非 HTTP 单次查询）。连接串来自 Worker
-  secret `CONNECTION_STRING`，只在服务端读取，不会下发到浏览器。
-- **D1**（`env.DB`，可选）：只存一份看板聚合结果的 JSON 快照。Neon 连不上时页面回退到
-  这份快照，并把状态灯标成“缓存”，而不是直接白屏。
+```
+首屏      直方图铺满整幅，中间半数加深，中位数一条红线
+部门      以全员平均为中轴的偏离条：谁给得多，一眼看出
+招聘      每年入职人数 + 其中仍在职的比例
+职衔      各职衔人数 / 薪酬区间 / 女性占比
+最高薪    当前薪酬最高的十人
+查一个人  按工号或姓名片段实时查
+```
+
+页面上的文字只讲**数据本身**：多少人、多少钱、差多少。数据源、表名、连接方式这类
+实现细节不出现在页面上。
+
+克制是刻意的：一节只说一件事，标题本身就是结论，所以不再加栏目名、编号、图例和
+“怎么读这张图”的说明；全站一个红，只做基准线；不画卡片底色，用留白和细线分区。
+
+## 技术栈
+
+| 层 | 用什么 |
+| --- | --- |
+| 框架 | TanStack Start（文件路由，`src/routes/`）+ React 19 |
+| 样式 | Tailwind CSS v4（`src/styles.css` 里的语义 token） |
+| 图表 | 手写 SVG（`src/components/charts.tsx`），不引图表库 |
+| 数据库 | Neon Postgres，`drizzle-orm` + `@neondatabase/serverless` |
+| 部署 | Cloudflare Workers，`wrangler` |
+
+### Drizzle 负责什么
+
+一切与数据库打交道的部分都由 Drizzle 统一管理：
+
+- **表定义**：`src/db/schema.ts` 声明 Neon 上的 `employees` schema（六张表、枚举、
+  序列、外键、索引、关系）。这是**唯一事实来源** —— 迁移和查询都从它来。
+- **查询**：`src/lib/employees.queries.server.ts` 里的聚合全部用 Drizzle 的
+  `select` / `join` / `where` / `groupBy` 写；`percentile_cont`、`filter (where ...)`
+  这类 Drizzle 没有专门 API 的部分用 `sql` 模板补，参数仍走占位符。
+- **迁移**：`drizzle/` 里的 SQL 由 `drizzle-kit generate` 从 schema 生成，
+  部署前由 `scripts/migrate.mjs` 应用。
+- **D1 快照**：`src/db/snapshot-schema.ts` + `drizzle-orm/d1`，读写同一套 API。
+
+## 数据
+
+- **Neon** 是唯一数据源。连接用官方驱动 `@neondatabase/serverless` 的 `Pool`
+  （WebSocket 上的 node-postgres 协议），包在 `drizzle-orm/neon-serverless` 里。
+  连接串来自 Worker secret `CONNECTION_STRING`，只在服务端读取。
+- 一次页面加载在**同一个只读事务**（`repeatable read`）里跑完所有聚合，所以每个数字
+  都来自同一个快照。
+- **D1**（`env.DB`）只存一份聚合结果的 JSON 快照，用于在 Neon 暂时不可用时兜底。
 
 ### 口径
 
 - `to_date = '9999-01-01'` 视为“当前有效”。
-- 数据集基准日（`asOf`）取薪资历史里最后一个真实结束日的次日，本数据集是 **2002-08-02**。
-  不写死，换一份数据集也能自动对上。所有“在职 / 当前薪酬 / 司龄”都相对这一天。
+- 数据集基准日（`asOf`）取薪资历史里最后一个真实结束日的次日 —— 本数据集是
+  **2002-08-02**。不写死，换一份数据集也能自动对上。
 - 300,024 人曾在这份数据里出现，其中 240,124 人在基准日仍在职。
 
-## 目录
+## 迁移
 
+两个库，两套迁移，各归各位：
+
+| 库 | 目录 | 谁跑 | 内容 |
+| --- | --- | --- | --- |
+| **Neon**（Postgres） | `drizzle/*.sql` | `scripts/migrate.mjs`，部署前 | `employees` schema |
+| **D1**（SQLite） | `migrations/*.sql` | `wrangler d1 migrations apply` | 只有看板快照表 |
+
+`npm run release` / `release:preview` 先跑 Neon 迁移，再跑 D1 迁移，两个库都在 Worker
+上线前就绪。
+
+### Neon 侧
+
+```bash
+npm run db:generate   # 改了 src/db/schema.ts 之后生成迁移
+npm run db:check      # 检查迁移历史有没有分叉
+npm run migrate       # 手动应用（部署时由 release 自动跑）
 ```
-migrations/
-  0001_create_employees.sql              # employees schema 在 D1 上的等价结构
-  0002_employees_dashboard_snapshot.sql  # 看板快照表
-  0003_align_employees_indexes.sql       # 去掉 0001 里凭空多出的索引，对齐 Neon
-src/lib/
-  neon.server.ts              # Neon 驱动封装（Pool/Client，每个请求用完即关）
-  employees.queries.server.ts # 报告用到的全部 SQL（一次只读事务）
-  snapshot.server.ts          # D1 快照读写
-  worker-env.server.ts        # 读取 Worker secret / D1 binding
-  dashboard.functions.ts      # 服务端函数（页面唯一入口）
-  dashboard-types.ts          # 前后端共享的数据结构
-src/components/charts.tsx     # 手写 SVG 图表原语 + 格式化
-src/routes/index.tsx          # 报告页面
-```
 
-## 设计
+`drizzle/0000_employees_schema.sql` 是基线，逐项对齐原数据集导入后的实际结构：
+列类型与长度、`employee_gender` 枚举、`id_employee_seq` 序列、主键/外键名
+（`idx_16988_primary`、`dept_emp_ibfk_1` …）、9 个索引。全部写成幂等语句，所以对已有
+数据的库跑一遍是 no-op，只在 `drizzle.__drizzle_migrations` 里记一行。
 
-浅色纸面 + 细线 + 等宽数字，取向是**印出来的分析报告**而非深色监控大屏：
+执行器默认只在 **main** 上真正应用。原因不是分支拿不到连接串 —— 部署工作流把生产与
+Preview 分成两个 job，各自加载自己的那份变量，两边是**不同**的 secret —— 而是无法从
+仓库里确认 `TRIA_ENV_PREVIEW` 里的连接串指向哪个库。若它指向生产库，分支上跑迁移就会
+改到生产 schema。非 main 只报告待应用的迁移（dry-run）；确认 Preview 指向独立的 Neon
+分支后，可以用 `NEON_MIGRATE=apply` 或改 `shouldApply()` 放开。
 
-- 颜色全部走语义 token（`--color-ink` / `--color-rule` / `--color-accent`），图表里的
-  `currentColor` 和 `text-ink-faint` 会自动跟随。
-- 每个小节都有编号、一句导语和右侧注释 —— 先给结论，再给图。
-- 图表不引第三方库，全是手写 SVG：数据量小、形状固定，手写更可控也不给客户端加体积。
-- 数字统一 `font-variant-numeric: tabular-nums`，表格和 KPI 才能对齐。
+连不上 Neon 只警告不阻断部署（页面会退到 D1 快照）；连上了但迁移报错则回滚并让部署失败。
 
-## 迁移与 Neon 的对应关系
+### D1 侧
 
-`0001_create_employees.sql` 用 SQLite 语法重建了 Neon 上的结构：
-
-| Neon (Postgres)                | D1 (SQLite)                        |
-| ------------------------------ | ---------------------------------- |
-| `bigint`                       | `INTEGER`                          |
-| `varchar(n)`                   | `TEXT` + `CHECK (length(...) <= n)` |
-| `char(4)`                      | `TEXT` + `CHECK`                   |
-| `date`                         | `DATE`                             |
-| `employees.employee_gender`    | `TEXT CHECK (gender IN ('M','F'))` |
-| `nextval('employees.id_employee_seq')` | `INTEGER PRIMARY KEY`（自增语义） |
-
-D1 的 `PRAGMA foreign_keys` 默认关闭，外键声明仅作结构留档；页面的数据不读 D1 的这六张表。
-
-索引也按 Neon 的实际情况对齐，不多不少 9 个：
-
-| 表 | 索引 | 类型 |
-| --- | --- | --- |
-| `employee` | `(id)` | PK |
-| `department` | `(id)` · `(dept_name)` | PK · UNIQUE |
-| `department_employee` | `(employee_id, department_id)` · `(department_id)` | PK · INDEX |
-| `department_manager` | `(employee_id, department_id)` · `(department_id)` | PK · INDEX |
-| `salary` | `(employee_id, from_date)` | PK |
-| `title` | `(employee_id, title, from_date)` | PK |
-
-Neon 里这些索引的物理名是 `idx_16979_primary` / `idx_16982_dept_no` 这类
-（原始数据集导入时生成的），D1 侧用了可读名，列组合与唯一性一致。
+只存一份聚合结果的 JSON 快照。`0004_snapshot_only.sql` 确保这张表存在，并删掉了早期
+`0001` 用 SQLite 语法重建的那六张 `employees` 影子表 —— 它们从来没被页面读过。
+`0001`–`0003` 留在仓库里只是为了迁就已部署库的 `d1_migrations` 历史。
 
 ## 本地开发
 
@@ -87,3 +106,40 @@ npm run dev
 ```
 
 需要在 `.dev.vars` 里提供 `CONNECTION_STRING`（不要提交这个文件）。
+
+## 目录
+
+```
+src/db/
+  schema.ts                   # Neon employees schema 的 Drizzle 定义（迁移 + 查询的事实来源）
+  snapshot-schema.ts          # D1 快照表的 Drizzle 定义
+src/lib/
+  neon.server.ts              # Pool + drizzle 实例，每个请求用完即关
+  employees.queries.server.ts # 报告用到的全部查询（一个只读事务）
+  snapshot.server.ts          # D1 快照读写（drizzle-orm/d1）
+  worker-env.server.ts        # 读取 Worker secret / D1 binding
+  dashboard.functions.ts      # 服务端函数（页面唯一入口）
+  dashboard-types.ts          # 前后端共享的数据结构
+src/components/charts.tsx     # 手写 SVG 图表原语 + 格式化
+src/routes/index.tsx          # 报告页面
+drizzle/                      # drizzle-kit 生成的迁移与快照
+migrations/                   # D1 迁移
+scripts/migrate.mjs           # Neon 迁移执行器（部署前跑）
+```
+
+## 设计
+
+取向：**一份冻结在 2002 年 8 月的薪资登记册**。题材是工资单，所以用的是
+台账的语言：连续打印纸的底色、衬线字、等宽数字、细线分行。
+
+- **纸是偏冷的浅绿灰**（`#F0F2ED`），连续打印纸那种绿，不是暖米色。
+- **只有一个红**（`#9E2418`），只做「基准线」：直方图里的中位数、部门图里的
+  全员平均。红在哪里出现，哪里就是比较的基准，没有装饰性用法。
+- **全站衬线**（Newsreader，汉字回退到宋体），数字和正文同一种语气；只有
+  极小的标注换成无衬线。全站不用等宽字体。
+- **开场就是图**：直方图铺满整幅，中间半数加深，中位数是一条红线；结论写在
+  图上方，而不是先摆一排 KPI。
+- **一节只说一件事**：标题就是结论，不加栏目名、编号、小标签。
+- 唯一的动效：直方图从基线「打」出来一次，像绘图仪走纸；其余元素都不动。
+- 数字统一 `font-variant-numeric: tabular-nums`，表格和正文里的数才能对齐。
+- 图表不引第三方库：数据量小、形状固定，手写更可控也不给客户端加体积。

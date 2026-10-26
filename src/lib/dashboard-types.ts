@@ -6,18 +6,12 @@
  * “在职 / 当前薪酬”都是相对这一天而言。
  */
 
-export type DataSource = 'neon' | 'cache'
-
 export interface Totals {
   /** 历史上出现过的全部员工。 */
   employees: number
   /** 当前仍在职（有 to_date = 9999-01-01 的部门任职记录）。 */
   activeEmployees: number
   departments: number
-  salaryRecords: number
-  titleRecords: number
-  assignmentRecords: number
-  managerRecords: number
   /** 以下薪酬指标均基于“当前有效”的薪资记录。 */
   avgSalary: number
   medianSalary: number
@@ -25,8 +19,6 @@ export interface Totals {
   p75Salary: number
   minSalary: number
   maxSalary: number
-  firstHire: string
-  lastHire: string
   /** 在职员工的平均司龄（年），相对 asOf。 */
   avgTenureYears: number
 }
@@ -97,12 +89,6 @@ export interface GenderSplit {
   female: GenderGroup
 }
 
-export interface TrendPoint {
-  year: number
-  avgSalary: number
-  records: number
-}
-
 export interface TopEarner {
   id: string
   name: string
@@ -115,9 +101,6 @@ export interface TopEarner {
 export interface Dashboard {
   /** 本次查询时间（ISO 字符串）。 */
   generatedAt: string
-  /** neon = 实时查询；cache = Neon 不可用时回退到 D1 快照。 */
-  source: DataSource
-  database: string
   /** 数据集的时间基准日（YYYY-MM-DD）。 */
   asOf: string
   totals: Totals
@@ -126,7 +109,6 @@ export interface Dashboard {
   departments: DepartmentStat[]
   titles: TitleStat[]
   gender: GenderSplit
-  salaryTrend: TrendPoint[]
   topEarners: TopEarner[]
 }
 

@@ -1,0 +1,451 @@
+{
+  "id": "b2f1c3d4-5e6a-4b7c-8d9e-0f1a2b3c4d5e",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "employees.department": {
+      "name": "department",
+      "schema": "employees",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "char(4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "dept_name": {
+          "name": "dept_name",
+          "type": "varchar(40)",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "idx_16979_dept_name": {
+          "name": "idx_16979_dept_name",
+          "columns": [
+            {
+              "expression": "dept_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "idx_16979_primary": {
+          "name": "idx_16979_primary",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "employees.department_employee": {
+      "name": "department_employee",
+      "schema": "employees",
+      "columns": {
+        "employee_id": {
+          "name": "employee_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "department_id": {
+          "name": "department_id",
+          "type": "char(4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "from_date": {
+          "name": "from_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_date": {
+          "name": "to_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "idx_16982_dept_no": {
+          "name": "idx_16982_dept_no",
+          "columns": [
+            {
+              "expression": "department_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "dept_emp_ibfk_1": {
+          "name": "dept_emp_ibfk_1",
+          "tableFrom": "department_employee",
+          "tableTo": "employee",
+          "schemaTo": "employees",
+          "columnsFrom": [
+            "employee_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "restrict"
+        },
+        "dept_emp_ibfk_2": {
+          "name": "dept_emp_ibfk_2",
+          "tableFrom": "department_employee",
+          "tableTo": "department",
+          "schemaTo": "employees",
+          "columnsFrom": [
+            "department_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "restrict"
+        }
+      },
+      "compositePrimaryKeys": {
+        "idx_16982_primary": {
+          "name": "idx_16982_primary",
+          "columns": [
+            "employee_id",
+            "department_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "employees.department_manager": {
+      "name": "department_manager",
+      "schema": "employees",
+      "columns": {
+        "employee_id": {
+          "name": "employee_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "department_id": {
+          "name": "department_id",
+          "type": "char(4)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "from_date": {
+          "name": "from_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_date": {
+          "name": "to_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "idx_16985_dept_no": {
+          "name": "idx_16985_dept_no",
+          "columns": [
+            {
+              "expression": "department_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "dept_manager_ibfk_1": {
+          "name": "dept_manager_ibfk_1",
+          "tableFrom": "department_manager",
+          "tableTo": "employee",
+          "schemaTo": "employees",
+          "columnsFrom": [
+            "employee_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "restrict"
+        },
+        "dept_manager_ibfk_2": {
+          "name": "dept_manager_ibfk_2",
+          "tableFrom": "department_manager",
+          "tableTo": "department",
+          "schemaTo": "employees",
+          "columnsFrom": [
+            "department_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "restrict"
+        }
+      },
+      "compositePrimaryKeys": {
+        "idx_16985_primary": {
+          "name": "idx_16985_primary",
+          "columns": [
+            "employee_id",
+            "department_id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "employees.employee": {
+      "name": "employee",
+      "schema": "employees",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "nextval('employees.id_employee_seq')"
+        },
+        "birth_date": {
+          "name": "birth_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_name": {
+          "name": "first_name",
+          "type": "varchar(14)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_name": {
+          "name": "last_name",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "gender": {
+          "name": "gender",
+          "type": "employee_gender",
+          "typeSchema": "employees",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hire_date": {
+          "name": "hire_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "idx_16988_primary": {
+          "name": "idx_16988_primary",
+          "columns": [
+            "id"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "employees.salary": {
+      "name": "salary",
+      "schema": "employees",
+      "columns": {
+        "employee_id": {
+          "name": "employee_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "amount": {
+          "name": "amount",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "from_date": {
+          "name": "from_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_date": {
+          "name": "to_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "salaries_ibfk_1": {
+          "name": "salaries_ibfk_1",
+          "tableFrom": "salary",
+          "tableTo": "employee",
+          "schemaTo": "employees",
+          "columnsFrom": [
+            "employee_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "restrict"
+        }
+      },
+      "compositePrimaryKeys": {
+        "idx_16991_primary": {
+          "name": "idx_16991_primary",
+          "columns": [
+            "employee_id",
+            "from_date"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "employees.title": {
+      "name": "title",
+      "schema": "employees",
+      "columns": {
+        "employee_id": {
+          "name": "employee_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "title": {
+          "name": "title",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "from_date": {
+          "name": "from_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_date": {
+          "name": "to_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "titles_ibfk_1": {
+          "name": "titles_ibfk_1",
+          "tableFrom": "title",
+          "tableTo": "employee",
+          "schemaTo": "employees",
+          "columnsFrom": [
+            "employee_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "restrict"
+        }
+      },
+      "compositePrimaryKeys": {
+        "idx_16994_primary": {
+          "name": "idx_16994_primary",
+          "columns": [
+            "employee_id",
+            "title",
+            "from_date"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "employees.employee_gender": {
+      "name": "employee_gender",
+      "schema": "employees",
+      "values": [
+        "M",
+        "F"
+      ]
+    }
+  },
+  "schemas": {
+    "employees": "employees"
+  },
+  "sequences": {
+    "employees.id_employee_seq": {
+      "name": "id_employee_seq",
+      "schema": "employees",
+      "increment": "1",
+      "startWith": "1",
+      "minValue": "1",
+      "maxValue": "9223372036854775807",
+      "cache": "1",
+      "cycle": false
+    }
+  },
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  },
+  "internal": {
+    "tables": {}
+  }
+}
