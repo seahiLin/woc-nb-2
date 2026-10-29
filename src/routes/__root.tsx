@@ -7,11 +7,11 @@ export const Route = createRootRoute({
     meta: [
       { charSet: 'utf-8' },
       { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-      { title: '员工与薪酬' },
+      { title: '员工与薪酬：一份 2002 年的薪资登记册' },
       {
         name: 'description',
         content:
-          '一份关于员工规模、薪酬分布、招聘留存与部门结构的分析。',
+          '从 30 万条入职记录里看薪酬：分布、招聘与留存、部门差异、同一个职衔内部的跨度，以及男女平均年薪的差距。',
       },
       { name: 'color-scheme', content: 'light' },
     ],
