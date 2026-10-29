@@ -74,6 +74,7 @@ function useScrollProgress() {
   const ref = useRef<HTMLDivElement>(null)
   const [progress, setProgress] = useState(1)
   const [armed, setArmed] = useState(false)
+
   useEffect(() => {
     const element = ref.current
     if (!element) return
@@ -107,7 +108,7 @@ function useScrollProgress() {
     }
   }, [])
 
-  return { ref, progress: armed ? progress : 1, armed }
+  return { ref, progress: armed ? progress : 1 }
 }
 
 /* ------------------------------------------------------------------ */
@@ -264,7 +265,7 @@ export function HiringTimeline({ data }: { data: RetentionYear[] }) {
         <span className="ml-auto text-[15px] tabular-nums text-ink">{fmtPercent(retained)}</span>
       </div>
 
-      <div className="mt-4 flex items-end gap-[3px]" aria-hidden="true">
+      <div className="mt-4 flex items-end gap-[3px]" role="img" aria-label="每年招进的人数，以及其中至今仍在职的人数">
         {data.map((row, index) => {
           const on = index < revealed
           // 最晚几年只有个位数的入职，给 0.6% 的地板，否则柱子低到看不见。
@@ -382,11 +383,11 @@ export function TitleRanges({ titles }: { titles: TitleStat[] }) {
 
   return (
     <div>
-      <div className="mb-1.5 grid grid-cols-[5.5rem_1fr_4.5rem] items-end gap-x-3 font-sans text-[10.5px] text-ink-faint sm:grid-cols-[8.5rem_1fr_6rem] sm:gap-x-4">
+      <div className="mb-1.5 grid grid-cols-[4.5rem_1fr_3.5rem] items-end gap-x-3 font-sans text-[10.5px] text-ink-faint sm:grid-cols-[8.5rem_1fr_6rem] sm:gap-x-4">
         <span />
         <div className="flex justify-between">
           <span>{fmtMoneyShort(domainMin)}</span>
-          <span className="text-ledger">竖线是中位数</span>
+          <span className="text-ledger">中位数</span>
           <span>{fmtMoneyShort(domainMax)}</span>
         </div>
         <span />
@@ -398,7 +399,7 @@ export function TitleRanges({ titles }: { titles: TitleStat[] }) {
         return (
           <div
             key={row.title}
-            className="grid grid-cols-[5.5rem_1fr_4.5rem] items-center gap-x-3 border-b border-rule/70 py-2.5 last:border-0 sm:grid-cols-[8.5rem_1fr_6rem] sm:gap-x-4"
+            className="grid grid-cols-[4.5rem_1fr_3.5rem] items-center gap-x-3 border-b border-rule/70 py-2.5 last:border-0 sm:grid-cols-[8.5rem_1fr_6rem] sm:gap-x-4"
           >
             <span className="truncate text-[14px] sm:text-[15px]">{row.title}</span>
 

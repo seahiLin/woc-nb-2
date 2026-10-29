@@ -94,18 +94,18 @@ function Article({ dashboard }: { dashboard: Dashboard }) {
     <article>
       <Cover dashboard={dashboard} />
       <Hiring dashboard={dashboard} />
-      <Departments dashboard={dashboard} />
       <BigNumber
         value={fmtPercent(1 - dashboard.totals.activeEmployees / Math.max(dashboard.totals.employees, 1))}
         caption={
           <>
             登记册上出现过 {fmtInt(dashboard.totals.employees)} 个人，到{' '}
             {fmtYearMonth(dashboard.asOf)} 还在职的只有{' '}
-            {fmtInt(dashboard.totals.activeEmployees)} 人。上面两张图算的是招进来，
-            往下几张图算的都是留下的这一批。
+            {fmtInt(dashboard.totals.activeEmployees)} 人。上一张图算的是招进来，
+            往下每张图算的都是留下的这一批。
           </>
         }
       />
+      <Departments dashboard={dashboard} />
       <Titles dashboard={dashboard} />
       <Gender dashboard={dashboard} />
       <TopEarners dashboard={dashboard} />
@@ -163,8 +163,7 @@ function Cover({ dashboard }: { dashboard: Dashboard }) {
         <Prose lead>
           这份登记册记的是一家公司 {dashboard.retention[0]?.year} 到{' '}
           {dashboard.retention[dashboard.retention.length - 1]?.year} 年间的每一次入职、每一次调薪、
-          每一次换岗。下面从它的形状读起：先是钱怎么分，再是谁在什么时候进来，
-          最后是同样的头衔能差出多少。
+          每一次换岗。下面几张图都停在同一天，读的是同一批人。
         </Prose>
       </div>
     </div>
